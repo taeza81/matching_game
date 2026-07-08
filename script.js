@@ -191,9 +191,9 @@ function startGame() {
     setupAvatar('p1', gameState.p1.character);
     setupAvatar('p2', gameState.p2.character);
 
-    // Setup Attack Buttons
-    document.getElementById('p1-attack-btn').addEventListener('click', () => triggerAttack('p1'));
-    document.getElementById('p2-attack-btn').addEventListener('click', () => triggerAttack('p2'));
+    // Setup Attack Buttons (use pointerdown for instant multi-touch responsiveness)
+    document.getElementById('p1-attack-btn').addEventListener('pointerdown', (e) => { e.preventDefault(); triggerAttack('p1'); });
+    document.getElementById('p2-attack-btn').addEventListener('pointerdown', (e) => { e.preventDefault(); triggerAttack('p2'); });
 
     // Generate Initial Cards
     generateCards('p1');

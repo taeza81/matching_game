@@ -490,15 +490,26 @@ function startDrag(e, card, playerId) {
     let currentTx = 0;
     let currentTy = 0;
     
+    const initialCardRect = card.getBoundingClientRect();
+    const zoneRect = interactiveZone.getBoundingClientRect();
+    
+    const minDx = zoneRect.left - initialCardRect.left;
+    const maxDx = zoneRect.right - initialCardRect.right;
+    const minDy = zoneRect.top - initialCardRect.top;
+    const maxDy = zoneRect.bottom - initialCardRect.bottom;
+    
     function onPointerMove(moveEvent) {
-        const dx = moveEvent.clientX - e.clientX;
-        const dy = moveEvent.clientY - e.clientY;
+        let dx = moveEvent.clientX - e.clientX;
+        let dy = moveEvent.clientY - e.clientY;
         
         if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
             isDragging = true;
         }
         
         if (isDragging) {
+            dx = Math.max(minDx, Math.min(dx, maxDx));
+            dy = Math.max(minDy, Math.min(dy, maxDy));
+            
             currentTx = dx;
             currentTy = dy;
             card.style.transform = `translate(${currentTx}px, ${currentTy}px) scale(1.1)`;

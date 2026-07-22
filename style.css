@@ -392,6 +392,8 @@ body {
 
 .card {
     position: relative;
+    width: min(100%, 90px);
+    aspect-ratio: 1/1;
     border-radius: 12px;
     cursor: pointer;
     touch-action: none;
@@ -474,8 +476,8 @@ body {
 }
 .char-grid {
     display: grid;
-    grid-template-columns: repeat(2, auto);
-    grid-template-rows: repeat(5, auto);
+    grid-template-columns: repeat(2, minmax(0, 80px));
+    grid-template-rows: repeat(5, minmax(0, 80px));
     gap: 10px;
     width: 100%;
     height: 100%;
@@ -484,8 +486,8 @@ body {
     box-sizing: border-box;
 }
 .char-grid-item {
-    width: min(18vw, 14vh, 90px);
-    height: min(18vw, 14vh, 90px);
+    width: min(100%, 80px);
+    aspect-ratio: 1/1;
     background-image: url(images/characters_final.png?v=1);
     background-size: 400% 300%;
     border-radius: 12px;

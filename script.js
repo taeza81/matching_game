@@ -376,8 +376,6 @@ function generateCards(playerId) {
     deck.forEach((itemIndex, i) => {
         const card = document.createElement('div');
         card.className = 'card';
-        card.style.width = `80px`;
-        card.style.height = `80px`;
         card.dataset.item = itemIndex; // Keep it as item for evaluateMatch
         
         card.dataset.index = i;

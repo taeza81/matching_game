@@ -4,12 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>카드 매칭 게임</title>
-    <!-- Arcade Game Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Jua&family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20260715-1">
+    <!-- High Legibility Educational Sans Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Noto+Sans+KR:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=20260904-9">
 </head>
 <body>
 
+    <div id="finish-btn" class="hidden" title="축하 파티 보기">🏆 축하 파티 보기</div>
     <div id="home-btn" title="메인 화면으로">🏠 처음으로</div>
     <div id="fullscreen-btn" title="전체화면 전환">📺 전체화면</div>
     <div id="app-container">
@@ -21,6 +22,14 @@
             </div>
 
             <div class="form-container">
+                <div class="form-group">
+                    <label>🎮 게임 모드</label>
+                    <div class="mode-btns">
+                        <button class="mode-btn selected" data-mode="coop">🌟 칭찬·협동 모드 (추천)</button>
+                        <button class="mode-btn" data-mode="battle">🚀 배틀·경쟁 모드</button>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label>🎨 테마 선택</label>
                     <div id="theme-selection" class="selection-grid">
@@ -58,6 +67,6 @@
         </div>
     </div>
     
-    <script src="script.js?v=20260714-3"></script>
+    <script src="script.js?v=20260904-9"></script>
 </body>
 </html>

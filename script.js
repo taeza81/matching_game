@@ -1,27 +1,135 @@
+// All delayed game work belongs to one session, including results and effects.
+let sessionId = 0;
+const sessionTasks = new Set();
+function scheduleTask(callback, delay) {
+    const owner = sessionId;
+    const task = setTimeout(() => {
+        sessionTasks.delete(task);
+        if (owner === sessionId) callback();
+    }, delay);
+    sessionTasks.add(task);
+    return task;
+}
+function cancelTask(task) {
+    clearTimeout(task);
+    sessionTasks.delete(task);
+}
+function clearSessionWork() {
+    sessionId++;
+    sessionTasks.forEach(clearTimeout);
+    sessionTasks.clear();
+    if (gameState.timer) clearInterval(gameState.timer);
+    gameState.timer = null;
+    boardResizeObserver.disconnect();
+    SoundEngine.stopBGM();
+    SoundEngine.stopTones();
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    document.querySelectorAll('.game-effect').forEach(el => el.remove());
+    document.querySelectorAll('.flash-damage, .frown-effect').forEach(el => {
+        el.classList.remove('flash-damage', 'frown-effect');
+    });
+}
+
+const preferences = { bgm: true, effects: true, voice: true, reducedMotion: false, volume: 1 };
+try {
+    const saved = JSON.parse(localStorage.getItem('matching-game-preferences'));
+    for (const key of Object.keys(preferences)) {
+        if (saved && typeof preferences[key] === 'boolean' && typeof saved[key] === 'boolean') preferences[key] = saved[key];
+        if (key === 'volume' && saved && Number.isFinite(saved.volume)) preferences.volume = Math.max(0, Math.min(1, saved.volume));
+    }
+} catch (_) { /* Storage can be unavailable on managed tablets. */ }
+const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+function motionReduced() { return preferences.reducedMotion || motionQuery.matches; }
+function applyPreferences() {
+    document.body.classList.toggle('reduced-motion', motionReduced());
+    if (!preferences.bgm) SoundEngine.stopBGM();
+    else if (gameState.active && !gameState.isGameOver) SoundEngine.playBGM();
+    SoundEngine.stopTones();
+    if ((!preferences.voice || gameState.playerCount !== 1) && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+    }
+    if (motionReduced()) {
+        document.querySelectorAll('.game-effect').forEach(el => el.remove());
+    }
+    try { localStorage.setItem('matching-game-preferences', JSON.stringify(preferences)); } catch (_) {}
+}
+
 const THEMES = {
-    dinosaurs: { name: "공룡", image: "images/dinosaurs.jpg" },
-    insects: { name: "곤충", image: "images/insects.jpg" },
-    school: { name: "학용품", image: "images/school.jpg" },
-    sports: { name: "스포츠", image: "images/sports.jpg" },
-    vehicles: { name: "교통<br>기관", image: "images/vehicles.jpg" }
+    dinosaurs: {
+        name: "공룡",
+        image: "images/dinosaurs-16.png",
+        words: ["티라노사우루스", "트리케라톱스", "스테고사우루스", "브라키오사우루스", "프테라노돈", "벨로키랍토르", "안킬로사우루스", "스피노사우루스", "파라사우롤로푸스", "딜로포사우루스", "카르노타우루스", "파키케팔로사우루스", "테리지노사우루스", "이구아노돈", "콤프소그나투스", "디플로도쿠스"],
+        columns: 4,
+        rows: 4,
+        imageWidth: 1254,
+        imageHeight: 1254,
+        sprites: [[22, 58, 296, 276], [332, 71, 290, 258], [623, 86, 321, 243], [962, 29, 278, 303], [15, 361, 308, 268], [325, 367, 305, 264], [631, 368, 298, 255], [940, 385, 308, 239], [20, 642, 303, 269], [326, 651, 302, 265], [631, 656, 301, 256], [958, 641, 276, 272], [17, 920, 303, 306], [320, 949, 305, 257], [636, 990, 302, 219], [938, 950, 312, 256]],
+    },
+    insects: {
+        name: "곤충",
+        image: "images/insects-16.png",
+        words: ["나비", "무당벌레", "꿀벌", "개미", "풍뎅이", "잠자리", "애벌레", "메뚜기", "거미", "귀뚜라미", "사슴벌레", "장수풍뎅이", "사마귀", "반딧불이", "매미", "파리"],
+        columns: 4,
+        rows: 4,
+        imageWidth: 1254,
+        imageHeight: 1254,
+        sprites: [[35, 43, 285, 274], [342, 92, 264, 218], [649, 46, 269, 292], [947, 49, 279, 282], [23, 376, 265, 249], [315, 366, 306, 251], [635, 376, 281, 234], [936, 358, 285, 267], [21, 688, 295, 206], [326, 659, 298, 248], [645, 636, 269, 271], [944, 670, 278, 237], [21, 929, 276, 289], [349, 943, 261, 277], [663, 931, 227, 290], [952, 964, 285, 245]],
+    },
+    school: {
+        name: "학용품",
+        image: "images/school-16.png",
+        words: ["연필", "지우개", "공책", "자", "가위", "풀", "책가방", "크레파스", "스테이플러", "필통", "연필깎이", "팔레트", "붓", "책", "삼각자", "테이프"],
+        columns: 4,
+        rows: 4,
+        imageWidth: 1254,
+        imageHeight: 1254,
+        overrides: { 5: {"image": "images/glue-stick.png", "imageWidth": 1254, "imageHeight": 1254, "bounds": [465, 18, 324, 1206]} },
+        sprites: [[76, 48, 216, 272], [356, 60, 240, 258], [659, 60, 244, 266], [956, 38, 253, 292], [50, 358, 254, 272], [382, 348, 182, 286], [634, 352, 278, 282], [969, 355, 223, 280], [37, 695, 277, 185], [327, 700, 290, 184], [658, 666, 237, 247], [939, 674, 282, 234], [42, 931, 260, 265], [343, 934, 261, 261], [664, 934, 246, 251], [943, 954, 286, 230]],
+    },
+    sports: {
+        name: "스포츠",
+        image: "images/sports-16.png",
+        words: ["축구공", "농구공", "야구공", "테니스 라켓", "배구공", "볼링 핀", "셔틀콕", "골프채", "권투 장갑", "럭비공", "탁구 라켓", "수경", "스케이트", "스키", "활", "자전거 헬멧"],
+        columns: 4,
+        rows: 4,
+        imageWidth: 1254,
+        imageHeight: 1254,
+        sprites: [[44, 57, 243, 238], [350, 56, 241, 241], [665, 59, 236, 234], [959, 38, 256, 265], [41, 352, 250, 250], [399, 331, 143, 296], [679, 353, 231, 257], [961, 337, 260, 271], [31, 667, 278, 227], [346, 666, 252, 211], [666, 642, 230, 259], [949, 696, 286, 169], [35, 944, 266, 248], [359, 920, 232, 287], [649, 932, 263, 273], [954, 949, 268, 244]],
+    },
+    vehicles: {
+        name: "교통<br>기관",
+        image: "images/vehicles-16.png",
+        words: ["자동차", "버스", "비행기", "기차", "자전거", "트럭", "배", "헬리콥터", "잠수함", "구급차", "소방차", "경찰차", "굴착기", "트랙터", "스쿠터", "우주 로켓"],
+        columns: 4,
+        rows: 4,
+        imageWidth: 1254,
+        imageHeight: 1254,
+        sprites: [[19, 85, 300, 221], [323, 71, 297, 237], [633, 84, 304, 222], [945, 32, 287, 292], [15, 369, 284, 250], [319, 379, 304, 239], [632, 332, 300, 298], [942, 357, 299, 273], [26, 657, 287, 263], [317, 677, 306, 244], [627, 664, 309, 261], [938, 692, 298, 232], [21, 937, 293, 270], [318, 955, 305, 252], [651, 960, 272, 255], [956, 937, 258, 271]],
+    },
 };
 
-const THEME_WORDS = {
-    dinosaurs: ["티라노사우루스", "트리케라톱스", "스테고사우루스", "브라키오사우루스", "프테라노돈", "벨로키랍토르", "안킬로사우루스", "스피노사우루스", "파라사우롤로푸스"],
-    insects: ["나비", "무당벌레", "꿀벌", "개미", "풍뎅이", "잠자리", "애벌레", "메뚜기", "거미"],
-    school: ["연필", "지우개", "공책", "자", "가위", "풀", "책가방", "크레파스", "스테이플러"],
-    sports: ["축구공", "농구공", "야구공", "테니스", "배구공", "볼링", "배드민턴", "골프", "권투"],
-    vehicles: ["자동차", "버스", "비행기", "기차", "자전거", "트럭", "배", "헬리콥터", "잠수함"]
-};
+const THEME_WORDS = Object.fromEntries(Object.entries(THEMES).map(([key, theme]) => [key, theme.words]));
+const PAIRS_PER_ROUND = 6;
+
+// Fisher–Yates gives each item and card position an equal chance.
+function shuffled(items) {
+    const result = [...items];
+    for (let i = result.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [result[i], result[j]] = [result[j], result[i]];
+    }
+    return result;
+}
 
 const VoiceEngine = {
-    speak: function(text) {
-        if (!('speechSynthesis' in window)) return;
+    speak: function(text, { interrupt = true } = {}) {
+        if (!preferences.voice || gameState.playerCount !== 1 || !('speechSynthesis' in window)) return;
         try {
-            window.speechSynthesis.cancel();
+            if (interrupt) window.speechSynthesis.cancel();
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.lang = 'ko-KR';
             utterance.rate = 0.95; // clear and friendly pace for kids
+            utterance.volume = preferences.volume;
             utterance.pitch = 1.1; // cheerful tone
             window.speechSynthesis.speak(utterance);
         } catch(e) {
@@ -37,7 +145,7 @@ const VoiceEngine = {
     ],
     speakPraise: function() {
         const praise = this.praises[Math.floor(Math.random() * this.praises.length)];
-        this.speak(praise);
+        this.speak(praise, { interrupt: false });
     }
 };
 
@@ -56,6 +164,7 @@ let gameState = {
     playerCount: 2,
     playerCharacters: { p1: 0, p2: 1, p3: 2, p4: 3 },
     players: {},
+    active: false,
     isGameOver: false,
     timer: null,
     timeLeft: GAME_TIME
@@ -66,43 +175,88 @@ const SoundEngine = {
     init: function() {
         if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     },
-    playTone: function(freq, type, duration) {
-        if (!audioCtx) return;
+    tones: new Set(),
+    stopTones: function() {
+        this.tones.forEach(osc => { try { osc.stop(); } catch (_) {} });
+        this.tones.clear();
+    },
+    playTone: function(freq, type, duration, channel = 'effects') {
+        if (!audioCtx || !preferences[channel] || preferences.volume === 0) return;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = type;
         osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.setValueAtTime(Math.max(.0001, .1 * preferences.volume), audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
+        this.tones.add(osc);
+        osc.onended = () => { this.tones.delete(osc); osc.disconnect(); gain.disconnect(); };
         osc.start();
         osc.stop(audioCtx.currentTime + duration);
     },
     playSelect: () => SoundEngine.playTone(600, 'sine', 0.1),
-    playMatch: () => { SoundEngine.playTone(800, 'sine', 0.1); setTimeout(() => SoundEngine.playTone(1200, 'sine', 0.15), 100); },
+    playMatch: () => { SoundEngine.playTone(800, 'sine', 0.1); scheduleTask(() => SoundEngine.playTone(1200, 'sine', 0.15), 100); },
     playError: () => SoundEngine.playTone(200, 'sawtooth', 0.2),
-    playAttack: () => { SoundEngine.playTone(150, 'square', 0.1); setTimeout(() => SoundEngine.playTone(100, 'square', 0.2), 100); },
+    playAttack: () => { SoundEngine.playTone(150, 'square', 0.1); scheduleTask(() => SoundEngine.playTone(100, 'square', 0.2), 100); },
     playExplosion: () => { SoundEngine.playTone(50, 'sawtooth', 0.5); },
     playWin: () => {
         [400, 500, 600, 800, 1000].forEach((freq, i) => {
-            setTimeout(() => SoundEngine.playTone(freq, 'square', 0.2), i * 150);
+            scheduleTask(() => SoundEngine.playTone(freq, 'square', 0.2), i * 150);
         });
     },
     bgmOsc: null,
     bgmInterval: null,
     playBGM: function() {
-        if(this.bgmInterval) return;
+        if(this.bgmInterval || !preferences.bgm) return;
         const notes = [261.63, 293.66, 329.63, 349.23, 392.00, 349.23, 329.63, 293.66];
         let i = 0;
         this.bgmInterval = setInterval(() => {
-            if(!gameState.isGameOver) this.playTone(notes[i++ % notes.length], 'triangle', 0.2);
+            if(!gameState.isGameOver) this.playTone(notes[i++ % notes.length], 'triangle', 0.2, 'bgm');
         }, 400);
     },
     stopBGM: function() {
         if(this.bgmInterval) { clearInterval(this.bgmInterval); this.bgmInterval = null; }
     }
 };
+
+function syncSettings() {
+    document.getElementById('setting-bgm').checked = preferences.bgm;
+    document.getElementById('setting-effects').checked = preferences.effects;
+    document.getElementById('setting-voice').checked = preferences.voice;
+    document.getElementById('setting-voice').disabled = gameState.playerCount !== 1;
+    document.getElementById('setting-motion').checked = motionReduced();
+    document.getElementById('setting-volume').value = Math.round(preferences.volume * 100);
+    document.getElementById('volume-value').value = `${Math.round(preferences.volume * 100)}%`;
+}
+const settingsDialog = document.getElementById('settings-dialog');
+if (settingsDialog) {
+    document.getElementById('settings-btn').addEventListener('click', () => {
+        syncSettings();
+        settingsDialog.showModal();
+    });
+    for (const [id, key] of [['bgm', 'bgm'], ['effects', 'effects'], ['voice', 'voice'], ['motion', 'reducedMotion']]) {
+        document.getElementById(`setting-${id}`).addEventListener('change', event => {
+            preferences[key] = event.target.checked;
+            applyPreferences();
+            syncSettings();
+        });
+    }
+    document.getElementById('setting-volume').addEventListener('input', event => {
+        preferences.volume = Number(event.target.value) / 100;
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        applyPreferences();
+        syncSettings();
+    });
+    document.getElementById('quiet-mode-btn').addEventListener('click', () => {
+        Object.assign(preferences, { bgm: false, effects: false, voice: false, reducedMotion: true });
+        applyPreferences();
+        syncSettings();
+    });
+    document.getElementById('settings-close-btn').addEventListener('click', () => settingsDialog.close());
+}
+motionQuery.addEventListener('change', applyPreferences);
+applyPreferences();
 
 // Setup Fullscreen
 const fullscreenBtn = document.getElementById('fullscreen-btn');
@@ -209,6 +363,67 @@ function switchScreen(screenName) {
     }
 }
 
+// Preserve usable card targets when lowering or rotating the display.
+function heightLimits(area, topSec, divider) {
+    const topStyle = getComputedStyle(topSec);
+    const hud = topSec.querySelector('.hud');
+    const hudStyle = getComputedStyle(hud);
+    const restHeight = parseFloat(topStyle.getPropertyValue('--rest-top-height')) || 180;
+    const naturalHeight = hud.offsetHeight + parseFloat(hudStyle.marginBottom) +
+        parseFloat(topStyle.paddingTop) + parseFloat(topStyle.paddingBottom);
+    const min = Math.max(restHeight, naturalHeight);
+    const zoneStyle = getComputedStyle(area.querySelector('.interactive-zone'));
+    const grid = area.querySelector('.game-card-grid');
+    const rows = grid ? Math.ceil(PAIRS_PER_ROUND * 2 / Number(grid.dataset.columns || 4)) : 3;
+    // Leave room for all rows of 44px targets and their gaps/padding.
+    const boardMinimum = 44 * rows + 14 * (rows - 1) + 20 +
+        parseFloat(zoneStyle.paddingTop) + parseFloat(zoneStyle.paddingBottom);
+    const max = Math.max(min, Math.min(Math.floor(area.clientHeight * .62),
+        area.clientHeight - divider.offsetHeight - (area.querySelector('.player-controls')?.offsetHeight || 0) - boardMinimum));
+    return { min, max, restHeight };
+}
+const boardResizeObserver = new ResizeObserver(entries => {
+    for (const { target } of entries) {
+        if (target.classList.contains('player-area')) {
+            target.style.setProperty('--character-columns', Math.max(2, Math.min(5, Math.floor((target.clientWidth - 28) / 60))));
+            const top = target.querySelector('.top-section');
+            const divider = target.querySelector('.section-divider');
+            if (top.style.minHeight) {
+                const limits = heightLimits(target, top, divider);
+                const height = Math.max(limits.min, Math.min(limits.max, parseFloat(top.style.minHeight)));
+                top.style.minHeight = `${height}px`;
+            }
+            continue;
+        }
+        const style = getComputedStyle(target);
+        const width = target.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        const height = target.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+        const columnGap = parseFloat(style.columnGap);
+        const columns = Math.max(2, Math.min(4, Math.floor((width + columnGap) / (44 + columnGap))));
+        const rows = Math.ceil(PAIRS_PER_ROUND * 2 / columns);
+        if (target.dataset.columns !== String(columns)) {
+            target.dataset.columns = columns;
+            target.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
+            target.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+            target.querySelectorAll('.card').forEach((card, cell) => {
+                card.style.gridColumn = cell % columns + 1;
+                card.style.gridRow = Math.floor(cell / columns) + 1;
+            });
+            const area = target.closest('.player-area');
+            const top = area.querySelector('.top-section');
+            if (top.style.minHeight) {
+                const limits = heightLimits(area, top, area.querySelector('.section-divider'));
+                top.style.minHeight = `${Math.max(limits.min, Math.min(limits.max, parseFloat(top.style.minHeight)))}px`;
+            }
+        }
+        const size = Math.max(0, Math.floor(Math.min(88,
+            (width - (columns - 1) * columnGap) / columns,
+            (height - (rows - 1) * parseFloat(style.rowGap)) / rows)));
+        const value = `${size}px`;
+        if (target.style.getPropertyValue('--card-size') !== value) target.style.setProperty('--card-size', value);
+    }
+});
+
 // Setup Smart Board Height Divider Drag and Quick-Lower Toggle
 function setupDivider(pId) {
     const area = document.getElementById(`${pId}-area`);
@@ -218,7 +433,8 @@ function setupDivider(pId) {
 
     const handle = divider.querySelector('.divider-handle');
     const kidBtn = divider.querySelector('.kid-height-btn');
-    const defaultTopMinH = 180;
+    const defaultTopMinH = parseFloat(getComputedStyle(topSec).getPropertyValue('--rest-top-height')) || 180;
+    boardResizeObserver.observe(area);
     let isDragging = false;
     let startY = 0;
     let initialMinH = defaultTopMinH;
@@ -236,14 +452,12 @@ function setupDivider(pId) {
         handle.addEventListener('pointermove', (e) => {
             if (!isDragging) return;
             const dy = e.clientY - startY;
-            const areaHeight = area.clientHeight;
-            const minLimit = 140;
-            const maxLimit = Math.max(minLimit, Math.floor(areaHeight * 0.62));
+            const { min: minLimit, max: maxLimit } = heightLimits(area, topSec, divider);
             const newHeight = Math.max(minLimit, Math.min(maxLimit, initialMinH + dy));
             topSec.style.minHeight = `${newHeight}px`;
 
             if (kidBtn) {
-                if (newHeight >= maxLimit - 25) {
+                if (newHeight >= maxLimit - 1) {
                     kidBtn.classList.add('active');
                     kidBtn.innerHTML = '⬆️ 올리기';
                 } else {
@@ -267,15 +481,14 @@ function setupDivider(pId) {
         kidBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             SoundEngine.playSelect();
-            const areaHeight = area.clientHeight;
-            const maxLimit = Math.max(140, Math.floor(areaHeight * 0.62));
-            const currentH = parseInt(getComputedStyle(topSec).minHeight) || defaultTopMinH;
-            if (currentH < maxLimit - 25) {
+            const { max: maxLimit, restHeight } = heightLimits(area, topSec, divider);
+            const currentH = topSec.offsetHeight;
+            if (currentH < maxLimit - 1) {
                 topSec.style.minHeight = `${maxLimit}px`;
                 kidBtn.classList.add('active');
                 kidBtn.innerHTML = '⬆️ 올리기';
             } else {
-                topSec.style.minHeight = `${defaultTopMinH}px`;
+                topSec.style.minHeight = `${restHeight}px`;
                 kidBtn.classList.remove('active');
                 kidBtn.innerHTML = '⬇️ 낮추기';
             }
@@ -284,6 +497,8 @@ function setupDivider(pId) {
 }
 
 function startGame() {
+    clearSessionWork();
+    gameState.active = true;
     SoundEngine.init();
     SoundEngine.playBGM();
     document.body.dataset.mode = gameState.gameMode;
@@ -300,6 +515,9 @@ function startGame() {
             hp: 100,
             attacksAvailable: 0,
             attacksUsed: 0,
+            attacksReceived: 0,
+            incomingAttacks: 0,
+            lastAttackTarget: null,
             totalMatches: 0,
             matches: 0,
             ready: false
@@ -309,6 +527,7 @@ function startGame() {
     const gameScreen = document.getElementById('game-screen');
     gameScreen.innerHTML = '';
     gameScreen.dataset.players = gameState.playerCount;
+    gameScreen.style.setProperty('--player-count', gameState.playerCount);
     
     // 1-Player Battle Mode Countdown Timer Header
     if (gameState.gameMode === 'battle' && gameState.playerCount === 1) {
@@ -358,11 +577,13 @@ function startGame() {
                 <button class="kid-height-btn" id="${pId}-kid-btn" type="button">⬇️ 낮추기</button>
             </div>
             <div class="bottom-section interactive-zone" id="${pId}-interactive"></div>
-            <button class="attack-btn battle-only" id="${pId}-attack-btn" style="display: none;" title="상대방 미사일 공격!"><span class="attack-icon">🚀</span><span class="attack-badge" id="${pId}-attack-count">0</span></button>
+            <div class="player-controls hidden" id="${pId}-controls">
+                <button class="attack-btn" id="${pId}-attack-btn" disabled title="3쌍을 맞추면 공격 1회가 생겨요"><span class="attack-icon">🚀</span><span class="attack-label">공격하기</span><span class="attack-badge" id="${pId}-attack-count">0</span></button>
+            </div>
         `;
         wrapper.appendChild(area);
         
-        setTimeout(() => {
+        scheduleTask(() => {
             setupAvatar(pId, gameState.players[pId].character);
             setupDivider(pId);
             const atkBtn = document.getElementById(`${pId}-attack-btn`);
@@ -377,7 +598,7 @@ function startGame() {
         }, 0);
     }
     gameScreen.appendChild(wrapper);
-    setTimeout(updateHUD, 0);
+    scheduleTask(updateHUD, 0);
 }
 
 function showCharacterSelection(pId) {
@@ -410,7 +631,9 @@ function showCharacterSelection(pId) {
         const item = document.createElement('div');
         item.className = 'char-grid-item';
         item.style.backgroundPosition = getSpritePos(i);
-        item.addEventListener('pointerdown', () => {
+        item.addEventListener('pointerdown', event => {
+            // Suppress a touch's compatibility click on the newly inserted start button.
+            event.preventDefault();
             SoundEngine.playSelect();
             gameState.players[pId].character = i;
             setupAvatar(pId, i);
@@ -465,7 +688,12 @@ function checkAllReady() {
             startBtn.innerText = '게임 시작!';
             document.getElementById('game-screen').appendChild(startBtn);
             
-            startBtn.addEventListener('click', () => {
+            let startPressed = false;
+            startBtn.addEventListener('pointerdown', () => { startPressed = true; });
+            startBtn.addEventListener('pointercancel', () => { startPressed = false; });
+            startBtn.addEventListener('click', event => {
+                // Character selection can create this button underneath an existing touch.
+                if (event.detail > 0 && !startPressed) return;
                 SoundEngine.playMatch();
                 startBtn.remove();
                 
@@ -475,6 +703,8 @@ function checkAllReady() {
                     if (topSec) topSec.classList.remove('hidden');
                     const divider = document.getElementById(`${pId}-divider`);
                     if (divider) divider.classList.remove('hidden');
+                    document.getElementById(`${pId}-controls`).classList.toggle('hidden',
+                        gameState.gameMode !== 'battle' || gameState.playerCount === 1);
                     generateCards(pId);
                 }
 
@@ -519,7 +749,7 @@ function startHintTimer(playerId) {
     const player = gameState.players[playerId];
     if (!player) return;
     
-    player.hintTimer = setTimeout(() => {
+    player.hintTimer = scheduleTask(() => {
         showSmartHint(playerId);
     }, HINT_DELAY);
 }
@@ -527,7 +757,7 @@ function startHintTimer(playerId) {
 function stopHintTimer(playerId) {
     const player = gameState.players[playerId];
     if (player && player.hintTimer) {
-        clearTimeout(player.hintTimer);
+        cancelTask(player.hintTimer);
         player.hintTimer = null;
     }
     clearHintWiggle(playerId);
@@ -579,14 +809,14 @@ function setupAvatar(playerId, charIndex) {
 
 function generateCards(playerId) {
     const interactiveZone = document.getElementById(`${playerId}-interactive`);
-    if(!interactiveZone) return;
+    if(!interactiveZone || !gameState.active || gameState.isGameOver) return;
+    const oldGrid = interactiveZone.querySelector('.game-card-grid');
+    if (oldGrid) boardResizeObserver.unobserve(oldGrid);
     interactiveZone.innerHTML = '';
     
-    let indices = [0,1,2,3,4,5,6,7,8].sort(() => 0.5 - Math.random()).slice(0, 5);
-    let deck = [...indices, ...indices]; 
-    deck.sort(() => 0.5 - Math.random());
-
-    const themeImage = THEMES[gameState.theme].image;
+    const theme = THEMES[gameState.theme];
+    const indices = shuffled(theme.words.map((_, index) => index)).slice(0, PAIRS_PER_ROUND);
+    const deck = shuffled([...indices, ...indices]);
 
     let elements = [];
 
@@ -597,20 +827,33 @@ function generateCards(playerId) {
         
         card.dataset.index = i;
         card.dataset.playerId = playerId;
-        card.style.backgroundImage = `url(${themeImage})`;
-        
-        if (gameState.theme === 'characters') {
-            card.style.backgroundSize = '400% 300%';
-            card.style.backgroundPosition = getSpritePos(itemIndex);
-        } else {
-            // Zoom in slightly (330%) to crop AI generated margins and center properly
-            card.style.backgroundSize = '330% 330%';
-            const col = itemIndex % 3;
-            const row = Math.floor(itemIndex / 3);
-            const xPct = col === 0 ? 2 : col === 1 ? 50 : 98;
-            const yPct = row === 0 ? 2 : row === 1 ? 50 : 98;
-            card.style.backgroundPosition = `${xPct}% ${yPct}%`;
-        }
+        card.dataset.label = theme.words[itemIndex];
+        const artwork = document.createElement('div');
+        artwork.className = 'card-art';
+        // Per-picture bounds avoid neighboring artwork bleeding through uneven atlas rows.
+        const source = theme.overrides?.[itemIndex] || theme;
+        const [x, y, width, height] = source.bounds || theme.sprites[itemIndex];
+        const namespace = 'http://www.w3.org/2000/svg';
+        const picture = document.createElementNS(namespace, 'svg');
+        picture.setAttribute('viewBox', `${x} ${y} ${width} ${height}`);
+        picture.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+        picture.setAttribute('aria-hidden', 'true');
+        const image = document.createElementNS(namespace, 'image');
+        image.setAttribute('href', source.image);
+        image.setAttribute('width', source.imageWidth);
+        image.setAttribute('height', source.imageHeight);
+        // Clip the source image too: contain-style letterboxing must stay plain white.
+        const clip = document.createElementNS(namespace, 'clipPath');
+        const clipId = `card-art-${sessionId}-${playerId}-${i}`;
+        clip.setAttribute('id', clipId);
+        const rect = document.createElementNS(namespace, 'rect');
+        for (const [name, value] of Object.entries({ x, y, width, height })) rect.setAttribute(name, value);
+        clip.appendChild(rect);
+        picture.appendChild(clip);
+        image.setAttribute('clip-path', `url(#${clipId})`);
+        picture.appendChild(image);
+        artwork.appendChild(picture);
+        card.appendChild(artwork);
 
         card.addEventListener('pointerdown', (e) => startDrag(e, card, playerId));
         elements.push(card);
@@ -621,28 +864,9 @@ function generateCards(playerId) {
     gameGrid.className = 'game-card-grid';
     interactiveZone.appendChild(gameGrid);
     
-    // Shuffle the 10 cards
-    elements.sort(() => 0.5 - Math.random());
-    
-    // Create a 12-cell grid layout (leaving space for missile button)
-    let gridItems = new Array(12).fill(null);
-    const isMobile = window.innerWidth <= 768;
-    // Desktop (4 cols): bottom-left and next cell are 8, 9
-    // Mobile (3 cols): bottom-left and next cell are 9, 10
-    const spacerIndices = isMobile ? [9, 10] : [8, 9]; 
-    
-    let cardIdx = 0;
-    for(let i=0; i<12; i++) {
-        if (spacerIndices.includes(i)) {
-            const spacer = document.createElement('div');
-            spacer.style.pointerEvents = 'none';
-            gridItems[i] = spacer;
-        } else {
-            gridItems[i] = elements[cardIdx++];
-        }
-    }
-    
-    gridItems.forEach(el => gameGrid.appendChild(el));
+    // The attack control lives below the board, so all twelve cells hold cards.
+    elements.forEach(card => gameGrid.appendChild(card));
+    boardResizeObserver.observe(gameGrid);
     
     gameState.players[playerId].selectedCard = null;
     gameState.players[playerId].matches = 0;
@@ -650,6 +874,8 @@ function generateCards(playerId) {
 }
 
 function evaluateMatch(playerId, card1, card2) {
+    if (!gameState.active || gameState.isGameOver || !card1.isConnected || !card2.isConnected ||
+        card1.classList.contains('matched') || card2.classList.contains('matched')) return;
     const player = gameState.players[playerId];
     player.selectedCard = null;
     card1.classList.remove('selected');
@@ -681,11 +907,11 @@ function evaluateMatch(playerId, card1, card2) {
             if (word) VoiceEngine.speak(word);
         }
         
-        if (player.matches === 5) {
+        if (player.matches === PAIRS_PER_ROUND) {
             stopHintTimer(playerId);
-            setTimeout(() => { generateCards(playerId); }, 600);
+            scheduleTask(() => { generateCards(playerId); }, 600);
             if (gameState.playerCount === 1) {
-                setTimeout(() => { VoiceEngine.speakPraise(); }, 800);
+                scheduleTask(() => { VoiceEngine.speakPraise(); }, 800);
             }
         } else {
             resetHintTimer(playerId);
@@ -812,23 +1038,41 @@ function updateScore(playerId, points) {
     updateHUD();
 }
 
+function attackCandidates(attackerId) {
+    return Object.keys(gameState.players).filter(id => id !== attackerId &&
+        gameState.players[id].hp > 0 && gameState.players[id].incomingAttacks === 0);
+}
+function chooseAttackTarget(attackerId) {
+    const candidates = attackCandidates(attackerId);
+    if (!candidates.length) return null;
+    const ids = Object.keys(gameState.players);
+    const last = gameState.players[attackerId].lastAttackTarget || attackerId;
+    const start = ids.indexOf(last);
+    candidates.sort((a, b) => gameState.players[a].attacksReceived - gameState.players[b].attacksReceived ||
+        ((ids.indexOf(a) - start + ids.length) % ids.length || ids.length) -
+        ((ids.indexOf(b) - start + ids.length) % ids.length || ids.length));
+    return candidates[0];
+}
 function triggerAttack(attackerId) {
-    if (gameState.isGameOver || gameState.playerCount === 1) return;
+    if (!gameState.active || gameState.isGameOver || gameState.playerCount === 1) return;
     
     const attacker = gameState.players[attackerId];
-    if (attacker.attacksAvailable > 0) {
+    if (attacker && attacker.hp > 0 && attacker.attacksAvailable > 0) {
+        const targetId = chooseAttackTarget(attackerId);
+        if (!targetId) return;
         attacker.attacksAvailable--;
         attacker.attacksUsed++;
         
-        const opponents = Object.keys(gameState.players).filter(id => id !== attackerId && gameState.players[id].hp > 0);
-        if (opponents.length === 0) return;
-        
-        const targetId = opponents[Math.floor(Math.random() * opponents.length)];
+        attacker.lastAttackTarget = targetId;
+        const target = gameState.players[targetId];
+        target.attacksReceived++;
+        target.incomingAttacks++;
         
         updateHUD(); 
         SoundEngine.playAttack();
         
         launchMissile(attackerId, targetId, () => {
+            target.incomingAttacks--;
             SoundEngine.playExplosion();
             
             // Deduct HP upon hit
@@ -840,15 +1084,15 @@ function triggerAttack(attackerId) {
             updateHUD();
 
             const targetArea = document.getElementById(`${targetId}-area`);
-            if (targetArea) {
+            if (targetArea && !motionReduced()) {
                 targetArea.classList.add('flash-damage');
-                setTimeout(() => targetArea.classList.remove('flash-damage'), 1000); 
+                scheduleTask(() => targetArea.classList.remove('flash-damage'), 1000);
             }
 
             const targetAvatar = document.getElementById(`${targetId}-avatar`);
-            if(targetAvatar) {
+            if(targetAvatar && !motionReduced()) {
                 targetAvatar.classList.add('frown-effect');
-                setTimeout(() => targetAvatar.classList.remove('frown-effect'), 800);
+                scheduleTask(() => targetAvatar.classList.remove('frown-effect'), 800);
                 
                 const endRect = targetAvatar.getBoundingClientRect();
                 const explosion = document.createElement('div');
@@ -859,9 +1103,9 @@ function triggerAttack(attackerId) {
                 explosion.style.left = `${endRect.left + endRect.width / 2}px`;
                 explosion.style.top = `${endRect.top + endRect.height / 2}px`;
                 explosion.style.transform = 'translate(-50%, -50%)';
-                explosion.className = 'explosion-fx'; 
+                explosion.className = 'explosion-fx game-effect';
                 document.body.appendChild(explosion);
-                setTimeout(() => explosion.remove(), 800);
+                scheduleTask(() => explosion.remove(), 800);
             }
         });
     }
@@ -891,7 +1135,7 @@ function eliminatePlayer(playerId) {
     if (gameState.gameMode === 'battle' && gameState.playerCount > 1) {
         const alive = Object.keys(gameState.players).filter(id => gameState.players[id].hp > 0);
         if (alive.length <= 1) {
-            setTimeout(() => checkWinCondition(), 1200);
+            scheduleTask(() => checkWinCondition(), 1200);
         }
     }
 }
@@ -904,7 +1148,12 @@ function launchMissile(attackerId, targetId, onHit) {
     const startRect = attackerBtn.getBoundingClientRect();
     const endRect = targetAvatar.getBoundingClientRect();
     
+    if (motionReduced()) {
+        scheduleTask(onHit, 1000);
+        return;
+    }
     const missile = document.createElement('div');
+    missile.className = 'game-effect';
     missile.innerText = '🚀';
     missile.style.position = 'absolute';
     missile.style.fontSize = '6rem';
@@ -926,7 +1175,7 @@ function launchMissile(attackerId, targetId, onHit) {
     missile.style.left = `${endRect.left + endRect.width / 2}px`;
     missile.style.top = `${endRect.top + endRect.height / 2}px`;
     
-    setTimeout(() => {
+    scheduleTask(() => {
         missile.remove();
         if (onHit) onHit();
     }, 1000);
@@ -971,7 +1220,11 @@ function updateHUD() {
         if (atkBtn && atkCount) {
             if (gameState.gameMode === 'battle' && gameState.playerCount > 1) {
                 atkCount.innerText = player.attacksAvailable || 0;
-                atkBtn.style.display = (player.attacksAvailable > 0 && player.hp > 0) ? 'flex' : 'none';
+                const ready = player.attacksAvailable > 0 && player.hp > 0;
+                atkBtn.disabled = !ready || attackCandidates(playerId).length === 0;
+                atkBtn.title = !ready ? '3쌍을 맞추면 공격 1회가 생겨요' :
+                    (atkBtn.disabled ? '공격이 끝나면 다시 사용할 수 있어요' : '공격을 분산해요');
+                atkBtn.style.display = 'flex';
             } else {
                 atkBtn.style.display = 'none';
             }
@@ -980,6 +1233,8 @@ function updateHUD() {
 }
 
 function checkWinCondition() {
+    if (!gameState.active || gameState.isGameOver) return;
+    clearSessionWork();
     gameState.isGameOver = true;
     if(gameState.timer) { clearInterval(gameState.timer); gameState.timer = null; }
     for (let p in gameState.players) { stopHintTimer(p); }
@@ -1052,7 +1307,7 @@ function checkWinCondition() {
             `;
             statsContainer.appendChild(card);
 
-            setTimeout(() => {
+            scheduleTask(() => {
                 const goAv = document.getElementById(`go-${pObj.id}-avatar`);
                 if(goAv) goAv.style.setProperty('--bg-pos', getSpritePos(pObj.character));
             }, 0);
@@ -1064,7 +1319,7 @@ function checkWinCondition() {
         SoundEngine.playWin();
 
         if ('speechSynthesis' in window) {
-            setTimeout(() => {
+            scheduleTask(() => {
                 if (gameState.playerCount === 1) {
                     VoiceEngine.speak("게임 종료! 수고 많았어요!");
                 } else {
@@ -1108,7 +1363,7 @@ function checkWinCondition() {
             `;
             statsContainer.appendChild(card);
             
-            setTimeout(() => {
+            scheduleTask(() => {
                 const goAv = document.getElementById(`go-${pId}-avatar`);
                 if(goAv) goAv.style.setProperty('--bg-pos', getSpritePos(pObj.character));
             }, 0);
@@ -1121,7 +1376,7 @@ function checkWinCondition() {
             SoundEngine.stopBGM();
             SoundEngine.playWin();
             if ('speechSynthesis' in window) {
-                setTimeout(() => {
+                scheduleTask(() => {
                     VoiceEngine.speak("모두 참 잘했어요! 정말 멋져요!");
                 }, 500);
             }
@@ -1132,9 +1387,11 @@ function checkWinCondition() {
 }
 
 function launchConfetti() {
+    if (motionReduced()) return;
     const colors = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#ff922b','#cc5de8'];
     for (let i = 0; i < 80; i++) {
         const el = document.createElement('div');
+        el.className = 'game-effect';
         el.style.cssText = `
             position: fixed;
             width: ${Math.random() * 10 + 6}px;
@@ -1149,11 +1406,13 @@ function launchConfetti() {
             animation-delay: ${Math.random() * 1.5}s;
         `;
         document.body.appendChild(el);
-        setTimeout(() => el.remove(), 4000);
+        scheduleTask(() => el.remove(), 4000);
     }
 }
 
 function resetGame() {
+    clearSessionWork();
+    gameState.active = false;
     SoundEngine.stopBGM();
     gameState.isGameOver = false;
     if(gameState.timer) { clearInterval(gameState.timer); gameState.timer = null; }

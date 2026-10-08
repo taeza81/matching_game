@@ -15,8 +15,9 @@ old session callbacks, attack distribution and in-flight target protection,
 multitouch, drag matching, sound settings, single-player speech and persistence.
 Speech is intercepted to check invocation; actual speakers and Korean browser
 voices must be checked on the target tablet or smart board.
-Lowering/dragging checks preserve each board's original card size and check that
-attack-button contents fit. Fullscreen checks cover entry, button exit, external
+Lowering/dragging checks cover the 66px/55px card steps, a 55px minimum on the
+supported display sizes, restoration on raising, and attack-button contents
+fitting inside the button. Fullscreen checks cover entry, button exit, external
 exit and a rejected request, with labels following the actual browser state.
 Voice checks also cover Korean-only selection, quality hints, delayed loading,
 missing voices, preview and speed persistence, complete names during quick

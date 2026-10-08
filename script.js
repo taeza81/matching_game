@@ -489,7 +489,7 @@ function cardLayout(grid) {
     const height = grid.clientHeight - paddingY;
     const columnGap = parseFloat(style.columnGap);
     const rowGap = parseFloat(style.rowGap);
-    const columns = Math.max(2, Math.min(4, Math.floor((width + columnGap) / (44 + columnGap))));
+    const columns = Math.max(2, Math.min(4, Math.floor((width + columnGap) / (55 + columnGap))));
     const rows = Math.ceil(PAIRS_PER_ROUND * 2 / columns);
     const maxHeight = parseFloat(style.maxHeight) || Infinity;
     const preferredSize = Math.floor(Math.min(88,
@@ -498,7 +498,7 @@ function cardLayout(grid) {
     return { width, height, columns, rows, rowGap, paddingY, preferredSize };
 }
 
-// Lower the board only while preserving its normal, width-dependent card size.
+// Reserve 55px cards at the lowest height, leaving the attack control reachable.
 function heightLimits(area, topSec, divider) {
     const topStyle = getComputedStyle(topSec);
     const hud = topSec.querySelector('.hud');
@@ -510,10 +510,11 @@ function heightLimits(area, topSec, divider) {
     const zoneStyle = getComputedStyle(area.querySelector('.interactive-zone'));
     const grid = area.querySelector('.game-card-grid');
     const layout = grid ? cardLayout(grid) : { rows: 3, preferredSize: 88, rowGap: 14, paddingY: 20 };
-    const boardMinimum = layout.preferredSize * layout.rows + layout.rowGap * (layout.rows - 1) + layout.paddingY + 2 +
+    const minimumSize = Math.min(55, layout.preferredSize);
+    const boardMinimum = minimumSize * layout.rows + layout.rowGap * (layout.rows - 1) + layout.paddingY + 2 +
         parseFloat(zoneStyle.paddingTop) + parseFloat(zoneStyle.paddingBottom);
-    const max = Math.max(min, Math.min(Math.floor(area.clientHeight * .62),
-        area.clientHeight - divider.offsetHeight - (area.querySelector('.player-controls')?.offsetHeight || 0) - boardMinimum));
+    const max = Math.max(min,
+        area.clientHeight - divider.offsetHeight - (area.querySelector('.player-controls')?.offsetHeight || 0) - boardMinimum);
     return { min, max, restHeight };
 }
 const boardResizeObserver = new ResizeObserver(entries => {
@@ -541,11 +542,18 @@ const boardResizeObserver = new ResizeObserver(entries => {
         }
         const area = target.closest('.player-area');
         const top = area.querySelector('.top-section');
+        let lowered = false;
         if (top.style.minHeight) {
             const limits = heightLimits(area, top, area.querySelector('.section-divider'));
-            top.style.minHeight = `${Math.max(limits.min, Math.min(limits.max, parseFloat(top.style.minHeight)))}px`;
+            const topHeight = Math.max(limits.min, Math.min(limits.max, parseFloat(top.style.minHeight)));
+            top.style.minHeight = `${topHeight}px`;
+            lowered = topHeight > limits.min + 1;
         }
-        const size = Math.max(0, Math.floor(Math.min(preferredSize, (height - (rows - 1) * rowGap) / rows)));
+        const fittingSize = Math.max(0, Math.floor(Math.min(preferredSize, (height - (rows - 1) * rowGap) / rows)));
+        // Use clear size steps while lowering; return to the normal size on raising.
+        const size = lowered && fittingSize < preferredSize
+            ? (fittingSize >= 66 ? 66 : fittingSize >= 55 ? 55 : fittingSize)
+            : fittingSize;
         const value = `${size}px`;
         if (target.style.getPropertyValue('--card-size') !== value) target.style.setProperty('--card-size', value);
     }
@@ -705,7 +713,7 @@ function startGame() {
             </div>
             <div class="bottom-section interactive-zone" id="${pId}-interactive"></div>
             <div class="player-controls hidden" id="${pId}-controls">
-                <button class="attack-btn" id="${pId}-attack-btn" type="button" disabled title="3쌍을 맞추면 공격 1회가 생겨요"><span class="attack-icon" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M12 20C12 10 19 4 28 4c0 9-6 16-16 16Z" fill="currentColor"/><circle cx="22" cy="10" r="3" fill="#334155"/><path d="m13 12-6 1-3 7 8-1M20 19l-1 6-7 3 1-8" fill="currentColor"/><path d="m9 23-5 5m4-7-4 3m7 0-3 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><span class="attack-label">공격하기</span><span class="attack-badge" id="${pId}-attack-count">0</span></button>
+                <button class="attack-btn" id="${pId}-attack-btn" type="button" disabled title="3쌍을 맞추면 공격 1회가 생겨요"><span class="attack-icon" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none"><g transform="rotate(35 20 20)" stroke="#082f49" stroke-width="1.5" stroke-linejoin="round"><path d="m16 28 4 9 4-9" fill="#fbbf24"/><path d="m18 28 2 5 2-5" fill="#fff7c2" stroke="none"/><path d="m15 19-5 9 6-2m9-7 5 9-6-2" fill="#fb7185"/><path d="M20 4c-5 5-7 14-5 23h10c2-9 0-18-5-23Z" fill="#f8fafc"/><path d="M16.5 9.5 20 4l3.5 5.5Z" fill="#f43f5e" stroke="none"/><circle cx="20" cy="16" r="3.5" fill="#38bdf8"/><path d="m18.5 15 1.5-1" stroke="#e0f2fe" stroke-linecap="round"/><path d="M16 25h8" stroke="#94a3b8"/></g></svg></span><span class="attack-label">공격하기</span><span class="attack-badge" id="${pId}-attack-count">0</span></button>
             </div>
         `;
         wrapper.appendChild(area);

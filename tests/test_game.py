@@ -86,7 +86,7 @@ class GameRegression(unittest.TestCase):
                 }
                 for (const c of area.querySelectorAll('.card')) {
                     const r=c.getBoundingClientRect(), z=area.querySelector('.interactive-zone').getBoundingClientRect();
-                    if(r.width<43.9 || r.height<43.9) bad.push('small '+r.width+'x'+r.height);
+                    if(r.width<54.9 || r.height<54.9) bad.push('small '+r.width+'x'+r.height);
                     const controls=area.querySelector('.player-controls');
                     if(controls && !controls.classList.contains('hidden') && r.bottom>controls.getBoundingClientRect().top+1) bad.push('card overlaps attack controls');
                     if(r.left<z.left-1 || r.right>z.right+1 || r.top<z.top-1 || r.bottom>z.bottom+1) bad.push('card outside '+area.id);
@@ -110,7 +110,10 @@ class GameRegression(unittest.TestCase):
                             self.page.locator(f'#p{number}-kid-btn').tap()
                         self.assert_boards()
                         lowered_sizes=self.page.locator('.game-card-grid').evaluate_all("grids=>grids.map(g=>g.querySelector('.card').getBoundingClientRect().width)")
-                        for original,lowered in zip(original_sizes,lowered_sizes): self.assertGreaterEqual(lowered,original-1)
+                        for original,lowered in zip(original_sizes,lowered_sizes):
+                            self.assertGreaterEqual(lowered,55)
+                            self.assertLessEqual(lowered,original)
+                            self.assertEqual(lowered,55)
                         for number in range(1,count+1):
                             handle=self.page.locator(f'#p{number}-divider .divider-handle').bounding_box()
                             x=handle['x']+handle['width']/2; y=handle['y']+handle['height']/2
@@ -118,7 +121,32 @@ class GameRegression(unittest.TestCase):
                             self.page.mouse.move(x,y+500,steps=4);self.page.mouse.up()
                         self.assert_boards()
                         dragged_sizes=self.page.locator('.game-card-grid').evaluate_all("grids=>grids.map(g=>g.querySelector('.card').getBoundingClientRect().width)")
-                        for original,dragged in zip(original_sizes,dragged_sizes): self.assertGreaterEqual(dragged,original-1)
+                        for dragged in dragged_sizes: self.assertEqual(dragged,55)
+                        for number in range(1,count+1): self.page.locator(f'#p{number}-kid-btn').tap()
+                        self.assert_boards()
+                        raised_sizes=self.page.locator('.game-card-grid').evaluate_all("grids=>grids.map(g=>g.querySelector('.card').getBoundingClientRect().width)")
+                        self.assertEqual(raised_sizes,original_sizes)
+
+    def test_lowering_has_66_and_55_pixel_steps(self):
+        self.start('battle',4)
+        self.assertEqual(self.page.locator('.card').first.bounding_box()['width'],88)
+        initial_y=self.page.locator('#p1-divider').bounding_box()['y']
+        self.page.locator('#p1-kid-btn').tap()
+        self.assert_boards()
+        self.assertEqual(self.page.locator('.card').first.bounding_box()['width'],55)
+        self.assertGreater(self.page.locator('#p1-divider').bounding_box()['y'],initial_y+400)
+        handle=self.page.locator('#p1-divider .divider-handle').bounding_box()
+        x=handle['x']+handle['width']/2; y=handle['y']+handle['height']/2
+        self.page.mouse.move(x,y);self.page.mouse.down()
+        self.page.mouse.move(x,y-36,steps=4);self.page.mouse.up()
+        self.assert_boards()
+        self.assertEqual(self.page.locator('.card').first.bounding_box()['width'],66)
+        self.page.locator('#p1-kid-btn').tap()
+        self.assert_boards()
+        self.assertEqual(self.page.locator('.card').first.bounding_box()['width'],55)
+        self.page.locator('#p1-kid-btn').tap()
+        self.assert_boards()
+        self.assertEqual(self.page.locator('.card').first.bounding_box()['width'],88)
 
     def test_fullscreen_button_tracks_actual_browser_state(self):
         button=self.page.locator('#fullscreen-btn')

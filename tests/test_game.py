@@ -33,7 +33,11 @@ class GameRegression(unittest.TestCase):
     def setUp(self):
         self.context = self.browser.new_context(viewport={'width': 1920, 'height': 1080}, has_touch=True)
         self.context.add_init_script("""if (!localStorage.getItem('matching-game-preferences')) localStorage.setItem('matching-game-preferences', JSON.stringify({bgm:false,effects:false,voice:false,reducedMotion:true}));
-            window.spoken=[]; window.speechSynthesis.speak=u=>window.spoken.push(u.text);""")
+            window.voiceList=[{name:'한국어 테스트 음성',lang:'ko-KR',voiceURI:'test-ko',default:false,localService:true}];
+            speechSynthesis.getVoices=()=>window.voiceList;
+            window.SpeechSynthesisUtterance=class {constructor(text){this.text=text;}};
+            window.spoken=[]; window.utterances=[];
+            window.speechSynthesis.speak=u=>{window.spoken.push(u.text);window.utterances.push(u);};""")
         self.page = self.context.new_page()
         self.page.set_default_timeout(6000)
         self.errors = []
@@ -149,7 +153,7 @@ class GameRegression(unittest.TestCase):
         self.page.locator('#quiet-mode-btn').tap()
         self.assertIsNone(self.page.evaluate('SoundEngine.bgmInterval'))
         self.assertEqual(self.page.evaluate('SoundEngine.tones.size'),0)
-        self.assertEqual(self.page.evaluate('preferences'),{'bgm':False,'effects':False,'voice':False,'reducedMotion':True,'volume':.35})
+        self.assertEqual(self.page.evaluate('preferences'),{'bgm':False,'effects':False,'voice':False,'reducedMotion':True,'volume':.35,'voiceURI':'','voiceRate':.85})
         self.page.locator('#settings-close-btn').tap()
         self.start('coop',2)
         self.page.locator('#settings-btn').tap()
@@ -164,6 +168,104 @@ class GameRegression(unittest.TestCase):
         self.assertTrue(self.page.evaluate('preferences.reducedMotion'))
         self.assertFalse(self.page.evaluate('preferences.bgm'))
         self.assertEqual(self.page.evaluate('preferences.volume'),.35)
+
+    def test_korean_voice_selection_preview_speed_and_persistence(self):
+        self.start('coop',1)
+        self.page.evaluate("""() => {
+            preferences.voice=true;
+            window.voiceList=[
+                {name:'English default',lang:'en-US',voiceURI:'english',default:true},
+                {name:'Microsoft Heami',lang:'ko-KR',voiceURI:'heami'},
+                {name:'Google 한국의',lang:'ko_KR',voiceURI:'google-ko'},
+                {name:'Microsoft SunHi Online (Natural)',lang:'ko-KR',voiceURI:'sunhi-natural'}
+            ];
+            speechSynthesis.dispatchEvent(new Event('voiceschanged'));
+        }""")
+        self.match()
+        speech=self.page.evaluate("({voice:utterances.at(-1).voice.voiceURI,lang:utterances.at(-1).lang,rate:utterances.at(-1).rate,pitch:utterances.at(-1).pitch})")
+        self.assertEqual(speech,{'voice':'sunhi-natural','lang':'ko-KR','rate':.85,'pitch':1})
+        self.page.locator('#settings-btn').tap()
+        self.assertEqual(self.page.locator('#setting-voice-select option').count(),4)
+        self.assertIn('SunHi',self.page.locator('#voice-status').inner_text())
+        self.page.locator('#setting-voice-select').select_option('google-ko')
+        self.page.locator('#setting-voice-rate').evaluate("e=>{e.value='0.70';e.dispatchEvent(new Event('input',{bubbles:true}))}")
+        self.page.locator('#voice-preview-btn').tap()
+        self.assertEqual(self.page.evaluate('utterances.at(-1).voice.voiceURI'),'google-ko')
+        self.assertEqual(self.page.evaluate('utterances.at(-1).rate'),.7)
+        self.assertEqual(self.page.evaluate('spoken.at(-1)'),'연필. 풀. 자동차. 참 잘했어요!')
+        self.page.reload()
+        self.assertEqual(self.page.evaluate('preferences.voiceURI'),'google-ko')
+        self.assertEqual(self.page.evaluate('preferences.voiceRate'),.7)
+        self.start('coop',1)
+        # A saved voice can be missing on a different tablet; fall back to Korean.
+        self.match()
+        self.assertEqual(self.page.evaluate('utterances.at(-1).voice.voiceURI'),'test-ko')
+        self.start('coop',2)
+        self.page.locator('#settings-btn').tap()
+        self.assertTrue(self.page.locator('#setting-voice-select').is_disabled())
+        self.assertTrue(self.page.locator('#setting-voice-rate').is_disabled())
+        self.assertTrue(self.page.locator('#voice-preview-btn').is_disabled())
+
+    def test_delayed_and_missing_korean_voices_and_home_cleanup(self):
+        self.start('coop',1)
+        self.page.evaluate("preferences.voice=true; window.voiceList=[]; VoiceEngine.speak('풀')")
+        self.assertEqual(self.page.evaluate('spoken'),[])
+        self.page.evaluate("""() => {
+            window.voiceList=[{name:'Google 한국의',lang:'ko-KR',voiceURI:'google-ko'}];
+            speechSynthesis.dispatchEvent(new Event('voiceschanged'));
+        }""")
+        self.assertEqual(self.page.evaluate('spoken'),['풀'])
+        self.assertEqual(self.page.evaluate('utterances.at(-1).voice.voiceURI'),'google-ko')
+        self.page.evaluate("window.voiceList=[]; VoiceEngine.speak('연필')")
+        self.page.locator('#home-btn').tap()
+        self.page.evaluate("window.voiceList=[{name:'Korean',lang:'ko-KR',voiceURI:'ko'}];speechSynthesis.dispatchEvent(new Event('voiceschanged'))")
+        self.assertEqual(self.page.evaluate('spoken'),['풀'])
+        self.assertEqual(self.page.evaluate('VoiceEngine.pending.length'),0)
+        self.start('coop',1)
+        self.page.evaluate("window.spoken=[];window.voiceList=[{name:'English',lang:'en-US',voiceURI:'en',default:true}];VoiceEngine.speak('자동차')")
+        self.page.wait_for_timeout(2200)
+        self.assertEqual(self.page.evaluate('spoken'),[])
+        self.assertEqual(self.page.evaluate('VoiceEngine.pending.length'),0)
+        self.assertIsNone(self.page.evaluate('VoiceEngine.waitTask'))
+        self.page.locator('#settings-btn').tap()
+        self.assertIn('한국어 음성을 사용할 수 없어요',self.page.locator('#voice-status').inner_text())
+        self.assertTrue(self.page.locator('#voice-preview-btn').is_disabled())
+
+    def test_background_and_effects_are_quieter_during_speech(self):
+        self.start('coop',1)
+        gains=self.page.evaluate("""() => {
+            Object.assign(preferences,{voice:true,bgm:true,effects:true,volume:1});
+            SoundEngine.init();
+            const createGain=audioCtx.createGain.bind(audioCtx), values=[];
+            audioCtx.createGain=()=>{
+                const gain=createGain(), set=gain.gain.setValueAtTime.bind(gain.gain);
+                gain.gain.setValueAtTime=(value,time)=>{values.push(value);return set(value,time);};
+                return gain;
+            };
+            VoiceEngine.speak('연필');
+            SoundEngine.playTone(400,'triangle',.1,'bgm');
+            SoundEngine.playTone(500,'sine',.1,'effects');
+            utterances.at(-1).onend();
+            SoundEngine.playTone(400,'triangle',.1,'bgm');
+            VoiceEngine.speak('풀');utterances.at(-1).onerror();
+            return {values,remaining:VoiceEngine.utterances.size};
+        }""")
+        for value,expected in zip(gains['values'],[.015,.035,.1]): self.assertAlmostEqual(value,expected)
+        self.assertEqual(len(gains['values']),3)
+        self.assertEqual(gains['remaining'],0)
+
+    def test_quick_matches_do_not_cut_off_korean_names(self):
+        self.start('coop',1)
+        self.page.evaluate("() => {preferences.voice=true;window.cancellations=0;speechSynthesis.cancel=()=>window.cancellations++;}")
+        names=[]
+        for _ in range(2):
+            names.append(self.page.locator('.card:not(.matched)').first.get_attribute('data-label'))
+            self.match()
+        self.assertEqual(self.page.evaluate('spoken'),names)
+        self.assertEqual(self.page.evaluate('window.cancellations'),0)
+        self.page.locator('#home-btn').tap()
+        self.assertGreater(self.page.evaluate('window.cancellations'),0)
+        self.assertEqual(self.page.evaluate('VoiceEngine.utterances.size'),0)
 
     def test_attacks_are_balanced_and_no_simultaneous_target(self):
         self.start('battle',4)

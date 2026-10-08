@@ -6,7 +6,7 @@
     <title>카드 매칭 게임</title>
     <!-- High Legibility Educational Sans Font -->
     <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Noto+Sans+KR:wght@400;500;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20261008-5">
+    <link rel="stylesheet" href="style.css?v=20261008-6">
 </head>
 <body>
 
@@ -23,6 +23,10 @@
         <label class="volume-setting">소리 크기 <input id="setting-volume" type="range" min="0" max="100" step="5" aria-label="소리 크기"> <output id="volume-value" for="setting-volume"></output></label>
         <label><input id="setting-voice" type="checkbox"> 1인 읽어주기</label>
         <p id="voice-setting-note">읽어주기는 1인 플레이에서 사용해요. 2인 이상은 각자의 소리가 겹치지 않도록 읽어주지 않아요.</p>
+        <label class="voice-select-setting" for="setting-voice-select">한국어 음성 <select id="setting-voice-select" aria-describedby="voice-status"><option value="">자동 선택</option></select></label>
+        <p id="voice-status" role="status"></p>
+        <label for="setting-voice-rate">읽기 속도 <input id="setting-voice-rate" type="range" min="0.65" max="1.1" step="0.05"> <output id="voice-rate-value" for="setting-voice-rate">0.85배</output></label>
+        <button id="voice-preview-btn" type="button">🔊 음성 들어보기</button>
         <label><input id="setting-motion" type="checkbox"> 움직임 줄이기</label>
         <div class="settings-actions">
             <button id="quiet-mode-btn" type="button">조용한 모드</button>
@@ -83,6 +87,6 @@
         </div>
     </div>
     
-    <script src="script.js?v=20261008-5"></script>
+    <script src="script.js?v=20261008-6"></script>
 </body>
 </html>

@@ -23,19 +23,21 @@ function clearSessionWork() {
     boardResizeObserver.disconnect();
     SoundEngine.stopBGM();
     SoundEngine.stopTones();
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    VoiceEngine.cancel();
     document.querySelectorAll('.game-effect').forEach(el => el.remove());
     document.querySelectorAll('.flash-damage, .frown-effect').forEach(el => {
         el.classList.remove('flash-damage', 'frown-effect');
     });
 }
 
-const preferences = { bgm: true, effects: true, voice: true, reducedMotion: false, volume: 1 };
+const preferences = { bgm: true, effects: true, voice: true, reducedMotion: false, volume: 1, voiceURI: '', voiceRate: 0.85 };
 try {
     const saved = JSON.parse(localStorage.getItem('matching-game-preferences'));
     for (const key of Object.keys(preferences)) {
         if (saved && typeof preferences[key] === 'boolean' && typeof saved[key] === 'boolean') preferences[key] = saved[key];
         if (key === 'volume' && saved && Number.isFinite(saved.volume)) preferences.volume = Math.max(0, Math.min(1, saved.volume));
+        if (key === 'voiceURI' && saved && typeof saved.voiceURI === 'string') preferences.voiceURI = saved.voiceURI;
+        if (key === 'voiceRate' && saved && Number.isFinite(saved.voiceRate)) preferences.voiceRate = Math.max(0.65, Math.min(1.1, saved.voiceRate));
     }
 } catch (_) { /* Storage can be unavailable on managed tablets. */ }
 const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -46,7 +48,7 @@ function applyPreferences() {
     else if (gameState.active && !gameState.isGameOver) SoundEngine.playBGM();
     SoundEngine.stopTones();
     if ((!preferences.voice || gameState.playerCount !== 1) && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
+        VoiceEngine.cancel();
     }
     if (motionReduced()) {
         document.querySelectorAll('.game-effect').forEach(el => el.remove());
@@ -122,18 +124,85 @@ function shuffled(items) {
 }
 
 const VoiceEngine = {
+    pending: [],
+    waitTask: null,
+    utterances: new Set(),
+    loadingExpired: false,
+    supported: function() {
+        return 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+    },
+    koreanVoices: function() {
+        if (!this.supported()) return [];
+        return window.speechSynthesis.getVoices().filter(voice => /^ko(?:[-_]|$)/i.test(voice.lang));
+    },
+    preferredVoice: function() {
+        const voices = this.koreanVoices();
+        const selected = voices.find(voice => voice.voiceURI === preferences.voiceURI);
+        if (selected) return selected;
+        // Names are hints supplied by the OS, not a guarantee of audio quality.
+        const score = voice => {
+            const name = voice.name || '';
+            let quality = 0;
+            if (/natural|neural|자연/i.test(name)) quality = 100;
+            else if (/premium|enhanced|고품질/i.test(name)) quality = 80;
+            else if (/google/i.test(name)) quality = 60;
+            return quality + (voice.default ? 2 : 0) + (/^ko[-_]KR$/i.test(voice.lang) ? 1 : 0);
+        };
+        return voices.sort((a, b) => score(b) - score(a))[0] || null;
+    },
+    cancel: function() {
+        this.pending = [];
+        if (this.waitTask !== null) cancelTask(this.waitTask);
+        this.waitTask = null;
+        this.utterances.clear();
+        if (this.supported()) window.speechSynthesis.cancel();
+    },
+    deliver: function(text, voice) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.voice = voice;
+        utterance.lang = 'ko-KR';
+        utterance.rate = preferences.voiceRate;
+        utterance.volume = preferences.volume;
+        utterance.pitch = 1; // Preserve the Korean voice's natural pronunciation.
+        this.utterances.add(utterance);
+        const finished = () => this.utterances.delete(utterance);
+        utterance.onend = finished;
+        utterance.onerror = finished;
+        try { window.speechSynthesis.speak(utterance); }
+        catch (error) { finished(); console.warn('TTS error:', error); }
+    },
+    flushPending: function() {
+        if (this.waitTask !== null) cancelTask(this.waitTask);
+        this.waitTask = null;
+        const now = Date.now();
+        this.pending = this.pending.filter(request => request.session === sessionId && request.expires > now);
+        const voice = this.preferredVoice();
+        if (voice && preferences.voice && gameState.playerCount === 1 && preferences.volume > 0) {
+            const requests = this.pending;
+            this.pending = [];
+            requests.forEach(request => this.deliver(request.text, voice));
+        } else if (this.pending.length) {
+            this.waitTask = scheduleTask(() => this.flushPending(), 100);
+        } else if (!voice) {
+            this.loadingExpired = true;
+        }
+        syncVoiceSettings();
+    },
+    init: function() {
+        if (this.supported()) window.speechSynthesis.addEventListener('voiceschanged', () => this.flushPending());
+        syncVoiceSettings();
+    },
     speak: function(text, { interrupt = true } = {}) {
-        if (!preferences.voice || gameState.playerCount !== 1 || !('speechSynthesis' in window)) return;
-        try {
-            if (interrupt) window.speechSynthesis.cancel();
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'ko-KR';
-            utterance.rate = 0.95; // clear and friendly pace for kids
-            utterance.volume = preferences.volume;
-            utterance.pitch = 1.1; // cheerful tone
-            window.speechSynthesis.speak(utterance);
-        } catch(e) {
-            console.warn("TTS error:", e);
+        if (!preferences.voice || gameState.playerCount !== 1 || preferences.volume === 0 || !this.supported()) return;
+        if (interrupt) this.cancel();
+        const voice = this.preferredVoice();
+        if (voice) this.deliver(text, voice);
+        else {
+            // Chromium/Android may populate the voice list after the first request.
+            // Never silently substitute an English/default voice for a Korean word.
+            this.loadingExpired = false;
+            this.pending.push({ text, session: sessionId, expires: Date.now() + 2000 });
+            this.flushPending();
         }
     },
     praises: [
@@ -186,7 +255,8 @@ const SoundEngine = {
         const gain = audioCtx.createGain();
         osc.type = type;
         osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        gain.gain.setValueAtTime(Math.max(.0001, .1 * preferences.volume), audioCtx.currentTime);
+        const speechLevel = VoiceEngine.utterances.size ? (channel === 'bgm' ? 0.15 : 0.35) : 1;
+        gain.gain.setValueAtTime(Math.max(.0001, .1 * preferences.volume * speechLevel), audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
@@ -220,6 +290,27 @@ const SoundEngine = {
     }
 };
 
+function syncVoiceSettings() {
+    const select = document.getElementById('setting-voice-select');
+    if (!select) return;
+    const voices = VoiceEngine.koreanVoices();
+    const automatic = VoiceEngine.preferredVoice();
+    select.replaceChildren();
+    select.add(new Option(`자동 선택${automatic && !preferences.voiceURI ? ` · ${automatic.name}` : ''}`, ''));
+    voices.forEach(voice => select.add(new Option(voice.name, voice.voiceURI)));
+    select.value = voices.some(voice => voice.voiceURI === preferences.voiceURI) ? preferences.voiceURI : '';
+    const disabled = gameState.playerCount !== 1 || !preferences.voice || !VoiceEngine.supported();
+    select.disabled = disabled || !voices.length;
+    document.getElementById('setting-voice-rate').disabled = disabled;
+    document.getElementById('voice-preview-btn').disabled = disabled || !voices.length || preferences.volume === 0;
+    const status = document.getElementById('voice-status');
+    if (!VoiceEngine.supported()) status.textContent = '이 브라우저는 읽어주기를 지원하지 않아요.';
+    else if (!voices.length) status.textContent = VoiceEngine.loadingExpired || window.speechSynthesis.getVoices().length
+        ? '한국어 음성을 사용할 수 없어요. 기기의 음성 설정에서 한국어 음성을 추가한 뒤 다시 열어 주세요.'
+        : '한국어 음성을 불러오고 있어요. 음성이 나타나지 않으면 기기의 한국어 음성 설치를 확인해 주세요.';
+    else status.textContent = `${automatic.name} 음성으로 읽어요.${preferences.voiceURI && select.value === '' ? ' 이전에 선택한 음성이 없어 자동 선택했어요.' : ''}`;
+}
+
 function syncSettings() {
     document.getElementById('setting-bgm').checked = preferences.bgm;
     document.getElementById('setting-effects').checked = preferences.effects;
@@ -228,6 +319,9 @@ function syncSettings() {
     document.getElementById('setting-motion').checked = motionReduced();
     document.getElementById('setting-volume').value = Math.round(preferences.volume * 100);
     document.getElementById('volume-value').value = `${Math.round(preferences.volume * 100)}%`;
+    document.getElementById('setting-voice-rate').value = preferences.voiceRate;
+    document.getElementById('voice-rate-value').value = `${preferences.voiceRate.toFixed(2)}배`;
+    syncVoiceSettings();
 }
 const settingsDialog = document.getElementById('settings-dialog');
 if (settingsDialog) {
@@ -244,9 +338,25 @@ if (settingsDialog) {
     }
     document.getElementById('setting-volume').addEventListener('input', event => {
         preferences.volume = Number(event.target.value) / 100;
-        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+        VoiceEngine.cancel();
         applyPreferences();
         syncSettings();
+    });
+    document.getElementById('setting-voice-select').addEventListener('change', event => {
+        VoiceEngine.cancel();
+        preferences.voiceURI = event.target.value;
+        applyPreferences();
+        syncSettings();
+    });
+    document.getElementById('setting-voice-rate').addEventListener('input', event => {
+        VoiceEngine.cancel();
+        preferences.voiceRate = Math.max(0.65, Math.min(1.1, Number(event.target.value)));
+        applyPreferences();
+        syncSettings();
+    });
+    document.getElementById('voice-preview-btn').addEventListener('click', () => {
+        SoundEngine.init();
+        VoiceEngine.speak('연필. 풀. 자동차. 참 잘했어요!');
     });
     document.getElementById('quiet-mode-btn').addEventListener('click', () => {
         Object.assign(preferences, { bgm: false, effects: false, voice: false, reducedMotion: true });
@@ -257,6 +367,7 @@ if (settingsDialog) {
 }
 motionQuery.addEventListener('change', applyPreferences);
 applyPreferences();
+VoiceEngine.init();
 
 // Setup Fullscreen
 const fullscreenBtn = document.getElementById('fullscreen-btn');
@@ -904,7 +1015,8 @@ function evaluateMatch(playerId, card1, card2) {
         if (gameState.playerCount === 1) {
             const themeWords = THEME_WORDS[gameState.theme] || THEME_WORDS.sports;
             const word = themeWords[card1.dataset.item];
-            if (word) VoiceEngine.speak(word);
+            // Let the previous name finish so quick matches do not cut syllables.
+            if (word) VoiceEngine.speak(word, { interrupt: false });
         }
         
         if (player.matches === PAIRS_PER_ROUND) {
@@ -1238,7 +1350,7 @@ function checkWinCondition() {
     gameState.isGameOver = true;
     if(gameState.timer) { clearInterval(gameState.timer); gameState.timer = null; }
     for (let p in gameState.players) { stopHintTimer(p); }
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    VoiceEngine.cancel();
     
     const statsContainer = document.getElementById('gameover-stats-container');
     if(!statsContainer) return;
@@ -1417,7 +1529,7 @@ function resetGame() {
     gameState.isGameOver = false;
     if(gameState.timer) { clearInterval(gameState.timer); gameState.timer = null; }
     for (let p in gameState.players) { stopHintTimer(p); }
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    VoiceEngine.cancel();
     
     Object.keys(gameState.players).forEach(pId => {
         const interactive = document.getElementById(`${pId}-interactive`);

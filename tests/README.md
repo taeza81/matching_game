@@ -15,6 +15,9 @@ old session callbacks, attack distribution and in-flight target protection,
 multitouch, drag matching, sound settings, single-player speech and persistence.
 Speech is intercepted to check invocation; actual speakers and Korean browser
 voices must be checked on the target tablet or smart board.
+Voice checks also cover Korean-only selection, quality hints, delayed loading,
+missing voices, preview and speed persistence, complete names during quick
+matches, and quieter sounds during speech.
 
 Every round now has six pairs (12 cards). Theme checks decode all five 16-icon
 atlases, check picture/word mapping, match an entire round and verify that all

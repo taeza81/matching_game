@@ -76,6 +76,14 @@ class GameRegression(unittest.TestCase):
             for (const area of areas) {
                 const a=area.getBoundingClientRect();
                 if(a.x<0 || a.y<0 || a.right>innerWidth+1 || a.bottom>innerHeight+1) bad.push('area outside viewport');
+                const attack=area.querySelector('.attack-btn');
+                if(attack && attack.checkVisibility()) {
+                    const button=attack.getBoundingClientRect();
+                    for(const child of attack.children) {
+                        const r=child.getBoundingClientRect();
+                        if(r.left<button.left || r.right>button.right || r.top<button.top || r.bottom>button.bottom) bad.push('attack contents outside button');
+                    }
+                }
                 for (const c of area.querySelectorAll('.card')) {
                     const r=c.getBoundingClientRect(), z=area.querySelector('.interactive-zone').getBoundingClientRect();
                     if(r.width<43.9 || r.height<43.9) bad.push('small '+r.width+'x'+r.height);
@@ -97,15 +105,40 @@ class GameRegression(unittest.TestCase):
                     with self.subTest(size=size,mode=mode,count=count):
                         self.start(mode,count)
                         self.assert_boards()
+                        original_sizes=self.page.locator('.game-card-grid').evaluate_all("grids=>grids.map(g=>g.querySelector('.card').getBoundingClientRect().width)")
                         for number in range(1,count+1):
                             self.page.locator(f'#p{number}-kid-btn').tap()
                         self.assert_boards()
+                        lowered_sizes=self.page.locator('.game-card-grid').evaluate_all("grids=>grids.map(g=>g.querySelector('.card').getBoundingClientRect().width)")
+                        for original,lowered in zip(original_sizes,lowered_sizes): self.assertGreaterEqual(lowered,original-1)
                         for number in range(1,count+1):
                             handle=self.page.locator(f'#p{number}-divider .divider-handle').bounding_box()
                             x=handle['x']+handle['width']/2; y=handle['y']+handle['height']/2
                             self.page.mouse.move(x,y);self.page.mouse.down()
                             self.page.mouse.move(x,y+500,steps=4);self.page.mouse.up()
                         self.assert_boards()
+                        dragged_sizes=self.page.locator('.game-card-grid').evaluate_all("grids=>grids.map(g=>g.querySelector('.card').getBoundingClientRect().width)")
+                        for original,dragged in zip(original_sizes,dragged_sizes): self.assertGreaterEqual(dragged,original-1)
+
+    def test_fullscreen_button_tracks_actual_browser_state(self):
+        button=self.page.locator('#fullscreen-btn')
+        self.assertIn('전체화면',button.inner_text())
+        button.tap()
+        self.page.wait_for_function("document.fullscreenElement && document.querySelector('#fullscreen-btn').textContent.includes('창모드')")
+        self.assertIn('창모드',button.inner_text())
+        self.assertEqual(button.get_attribute('aria-pressed'),'true')
+        button.tap()
+        self.page.wait_for_function("!document.fullscreenElement && document.querySelector('#fullscreen-btn').textContent.includes('전체화면')")
+        self.assertIn('전체화면',button.inner_text())
+        self.assertEqual(button.get_attribute('aria-pressed'),'false')
+        button.tap()
+        self.page.wait_for_function("document.fullscreenElement && document.querySelector('#fullscreen-btn').textContent.includes('창모드')")
+        self.page.evaluate('document.exitFullscreen()')
+        self.page.wait_for_function("document.querySelector('#fullscreen-btn').textContent.includes('전체화면')")
+        self.page.evaluate("() => {document.documentElement.requestFullscreen=()=>Promise.reject(new Error('Denied'));}")
+        button.tap()
+        self.assertFalse(self.page.evaluate('Boolean(document.fullscreenElement)'))
+        self.assertIn('전체화면',button.inner_text())
 
     def test_rotation_after_lowering(self):
         self.page.set_viewport_size({'width':1024,'height':768})

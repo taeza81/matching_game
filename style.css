@@ -31,6 +31,7 @@ body {
     color: white;
     padding: 10px 15px;
     font-size: 1rem;
+    font-family: inherit;
 }
 #home-btn { 
     right: 140px; 
@@ -561,61 +562,55 @@ body[data-mode="battle"] .coop-only { display: none !important; }
 
 
 
-/* Attack Button - Bottom Left of the entire player area */
+/* Attack control stays in its own footer, with readable ready/waiting states. */
 .attack-btn {
-    position: absolute;
-    bottom: 20px;
-    left: 20px;
-    z-index: 1000;
-    width: 68px;
-    height: 68px;
-    padding: 0;
-    background: linear-gradient(145deg, #ff5722 0%, #d32f2f 100%);
-    border: 3px solid #ffeb3b;
-    border-radius: 50%;
+    position: static;
+    width: min(170px, 100%);
+    height: 56px;
+    padding: 6px;
+    gap: 6px;
+    background: #b83a20;
+    color: #fff;
+    border: 2px solid #fde047;
+    border-radius: 14px;
+    font: inherit;
     cursor: pointer;
-    box-shadow: 0 4px 0 #b71c1c, 0 6px 16px rgba(244, 67, 54, 0.45);
-    transition: transform 0.1s, box-shadow 0.1s;
+    box-shadow: 0 3px 0 #642014;
+    transition: background 0.1s, transform 0.1s;
     display: flex;
     justify-content: center;
     align-items: center;
-    animation: attackPulse 1.8s infinite ease-in-out;
 }
-@keyframes attackPulse {
-    0%, 100% { transform: scale(1); box-shadow: 0 4px 0 #b71c1c, 0 6px 16px rgba(244, 67, 54, 0.45); }
-    50% { transform: scale(1.08); box-shadow: 0 4px 0 #b71c1c, 0 8px 24px rgba(255, 193, 7, 0.65); }
-}
-.attack-btn:active {
-    transform: translateY(4px) scale(0.96);
-    box-shadow: 0 0 0 #b71c1c, 0 2px 6px rgba(0,0,0,0.4);
-}
+.attack-btn:hover:not(:disabled) { background: #a12e19; }
+.attack-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: none; }
+.attack-btn:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 .attack-btn .attack-icon {
-    font-size: 2.2rem;
-    line-height: 1;
-    display: block;
-    transform: translate(-1px, 1px);
-    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.3));
+    width: 28px;
+    height: 28px;
+    display: flex;
+    flex-shrink: 0;
     user-select: none;
 }
+.attack-icon svg { width: 100%; height: 100%; }
+.attack-label { font-size: 1rem; font-weight: 800; white-space: nowrap; }
 .attack-btn .attack-badge,
 .attack-badge {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    background: linear-gradient(135deg, #ffeb3b, #fbc02d);
-    color: #b71c1c;
-    border: 2.5px solid #ffffff;
+    position: static;
+    background: #fde047;
+    color: #3b2000;
+    border: 1px solid #fff;
     border-radius: 50%;
     min-width: 28px;
     height: 28px;
+    flex-shrink: 0;
     display: flex;
     justify-content: center;
     align-items: center;
-    font-size: 1.15rem;
+    font-size: 1rem;
     font-family: 'Noto Sans KR', sans-serif;
     font-weight: 900;
     line-height: 1;
-    box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+    box-shadow: none;
     box-sizing: border-box;
     padding: 0 2px;
 }
@@ -940,7 +935,8 @@ body, #app-container { height: 100dvh; }
 .char-grid { display: grid; grid-template-columns: repeat(var(--character-columns, 5), minmax(0, 1fr)); gap: 12px; }
 .char-grid-item { width: min(85px, 100%); height: auto; aspect-ratio: 1; justify-self: center; min-width: 0; }
 .interactive-zone h2 { font-size: clamp(1.1rem, 2vw, 1.5rem); text-align: center; }
-.attack-btn:disabled { opacity: .5; animation: none; cursor: default; }
+.attack-btn:disabled { opacity: 1; background: #374151; color: #e2e8f0; border-color: #94a3b8; box-shadow: none; cursor: default; }
+.attack-btn:disabled .attack-badge { background: #e2e8f0; color: #1f2937; border-color: #cbd5e1; }
 #game-screen[data-players="1"] .players-wrapper { padding-top: 0; }
 #game-screen:has(.visual-timer-container) { padding-top: 162px; }
 .visual-timer-container { top: 76px; }
@@ -971,7 +967,6 @@ body, #app-container { height: 100dvh; }
     #game-screen:is([data-players="3"], [data-players="4"]) .ready-avatar { width: 70px; height: 70px; }
     #game-screen:is([data-players="3"], [data-players="4"]) .ready-state-container { gap: 8px; }
     #game-screen:is([data-players="3"], [data-players="4"]) .ready-text { font-size: 1.5rem; }
-    #game-screen:is([data-players="3"], [data-players="4"]) .attack-btn { width: 52px; height: 52px; left: 16px; bottom: 16px; }
     #game-screen:is([data-players="3"], [data-players="4"]) .char-grid { gap: 8px; padding: 4px; }
 }
 @media (max-width: 800px) {
@@ -1004,9 +999,5 @@ body.reduced-motion *, body.reduced-motion *::before, body.reduced-motion *::aft
 .card:hover { filter: none; }
 .card.selected { filter: none; border-color: #ffeb3b; box-shadow: 0 0 0 3px #ffeb3b, 0 4px 10px #0003; }
 .player-controls { flex: 0 0 auto; min-height: 78px; padding: 6px 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
-.player-controls .attack-btn { position: static !important; width: min(170px, 100%) !important; height: 52px !important; padding: 5px 8px; display: flex; gap: 6px; border-radius: 14px; animation: none; }
-.player-controls .attack-icon { font-size: 1.4rem; transform: none; filter: none; }
-.player-controls .attack-label { font-size: 1rem; font-weight: 800; white-space: nowrap; }
-.player-controls .attack-badge { position: static; min-width: 25px; height: 25px; border-width: 1px; font-size: 1rem; box-shadow: none; }
 
 .card-art svg { display: block; width: 100%; height: 100%; overflow: hidden; }

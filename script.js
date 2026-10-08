@@ -91,7 +91,7 @@ const THEMES = {
     sports: {
         name: "스포츠",
         image: "images/sports-16.png",
-        words: ["축구공", "농구공", "야구공", "테니스 라켓", "배구공", "볼링 핀", "셔틀콕", "골프채", "권투 장갑", "럭비공", "탁구 라켓", "수경", "스케이트", "스키", "활", "자전거 헬멧"],
+        words: ["축구공", "농구공", "야구공", "테니스 라켓", "배구공", "볼링 핀", "셔틀콕", "골프채", "권투 장갑", "럭비공", "탁구 라켓", "물안경", "스케이트", "스키", "활", "자전거 헬멧"],
         columns: 4,
         rows: 4,
         imageWidth: 1254,
@@ -372,13 +372,20 @@ VoiceEngine.init();
 // Setup Fullscreen
 const fullscreenBtn = document.getElementById('fullscreen-btn');
 if(fullscreenBtn) {
-    fullscreenBtn.addEventListener('click', () => {
-        if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch(err => {
-                console.log(`Error attempting to enable fullscreen: ${err.message}`);
-            });
-        } else {
-            document.exitFullscreen();
+    const syncFullscreenButton = () => {
+        const active = Boolean(document.fullscreenElement);
+        fullscreenBtn.textContent = active ? '🗗 창모드' : '📺 전체화면';
+        fullscreenBtn.title = active ? '창모드로 전환' : '전체화면으로 전환';
+        fullscreenBtn.setAttribute('aria-pressed', String(active));
+    };
+    document.addEventListener('fullscreenchange', syncFullscreenButton);
+    syncFullscreenButton();
+    fullscreenBtn.addEventListener('click', async () => {
+        try {
+            if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
+            else await document.exitFullscreen();
+        } catch (error) {
+            console.warn('Fullscreen change failed:', error);
         }
     });
 }
@@ -474,7 +481,24 @@ function switchScreen(screenName) {
     }
 }
 
-// Preserve usable card targets when lowering or rotating the display.
+function cardLayout(grid) {
+    const style = getComputedStyle(grid);
+    const paddingX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+    const paddingY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+    const width = grid.clientWidth - paddingX;
+    const height = grid.clientHeight - paddingY;
+    const columnGap = parseFloat(style.columnGap);
+    const rowGap = parseFloat(style.rowGap);
+    const columns = Math.max(2, Math.min(4, Math.floor((width + columnGap) / (44 + columnGap))));
+    const rows = Math.ceil(PAIRS_PER_ROUND * 2 / columns);
+    const maxHeight = parseFloat(style.maxHeight) || Infinity;
+    const preferredSize = Math.floor(Math.min(88,
+        (width - (columns - 1) * columnGap) / columns,
+        (maxHeight - paddingY - (rows - 1) * rowGap) / rows));
+    return { width, height, columns, rows, rowGap, paddingY, preferredSize };
+}
+
+// Lower the board only while preserving its normal, width-dependent card size.
 function heightLimits(area, topSec, divider) {
     const topStyle = getComputedStyle(topSec);
     const hud = topSec.querySelector('.hud');
@@ -485,9 +509,8 @@ function heightLimits(area, topSec, divider) {
     const min = Math.max(restHeight, naturalHeight);
     const zoneStyle = getComputedStyle(area.querySelector('.interactive-zone'));
     const grid = area.querySelector('.game-card-grid');
-    const rows = grid ? Math.ceil(PAIRS_PER_ROUND * 2 / Number(grid.dataset.columns || 4)) : 3;
-    // Leave room for all rows of 44px targets and their gaps/padding.
-    const boardMinimum = 44 * rows + 14 * (rows - 1) + 20 +
+    const layout = grid ? cardLayout(grid) : { rows: 3, preferredSize: 88, rowGap: 14, paddingY: 20 };
+    const boardMinimum = layout.preferredSize * layout.rows + layout.rowGap * (layout.rows - 1) + layout.paddingY + 2 +
         parseFloat(zoneStyle.paddingTop) + parseFloat(zoneStyle.paddingBottom);
     const max = Math.max(min, Math.min(Math.floor(area.clientHeight * .62),
         area.clientHeight - divider.offsetHeight - (area.querySelector('.player-controls')?.offsetHeight || 0) - boardMinimum));
@@ -506,12 +529,7 @@ const boardResizeObserver = new ResizeObserver(entries => {
             }
             continue;
         }
-        const style = getComputedStyle(target);
-        const width = target.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-        const height = target.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-        const columnGap = parseFloat(style.columnGap);
-        const columns = Math.max(2, Math.min(4, Math.floor((width + columnGap) / (44 + columnGap))));
-        const rows = Math.ceil(PAIRS_PER_ROUND * 2 / columns);
+        const { height, columns, rows, rowGap, preferredSize } = cardLayout(target);
         if (target.dataset.columns !== String(columns)) {
             target.dataset.columns = columns;
             target.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
@@ -520,16 +538,14 @@ const boardResizeObserver = new ResizeObserver(entries => {
                 card.style.gridColumn = cell % columns + 1;
                 card.style.gridRow = Math.floor(cell / columns) + 1;
             });
-            const area = target.closest('.player-area');
-            const top = area.querySelector('.top-section');
-            if (top.style.minHeight) {
-                const limits = heightLimits(area, top, area.querySelector('.section-divider'));
-                top.style.minHeight = `${Math.max(limits.min, Math.min(limits.max, parseFloat(top.style.minHeight)))}px`;
-            }
         }
-        const size = Math.max(0, Math.floor(Math.min(88,
-            (width - (columns - 1) * columnGap) / columns,
-            (height - (rows - 1) * parseFloat(style.rowGap)) / rows)));
+        const area = target.closest('.player-area');
+        const top = area.querySelector('.top-section');
+        if (top.style.minHeight) {
+            const limits = heightLimits(area, top, area.querySelector('.section-divider'));
+            top.style.minHeight = `${Math.max(limits.min, Math.min(limits.max, parseFloat(top.style.minHeight)))}px`;
+        }
+        const size = Math.max(0, Math.floor(Math.min(preferredSize, (height - (rows - 1) * rowGap) / rows)));
         const value = `${size}px`;
         if (target.style.getPropertyValue('--card-size') !== value) target.style.setProperty('--card-size', value);
     }
@@ -689,7 +705,7 @@ function startGame() {
             </div>
             <div class="bottom-section interactive-zone" id="${pId}-interactive"></div>
             <div class="player-controls hidden" id="${pId}-controls">
-                <button class="attack-btn" id="${pId}-attack-btn" disabled title="3쌍을 맞추면 공격 1회가 생겨요"><span class="attack-icon">🚀</span><span class="attack-label">공격하기</span><span class="attack-badge" id="${pId}-attack-count">0</span></button>
+                <button class="attack-btn" id="${pId}-attack-btn" type="button" disabled title="3쌍을 맞추면 공격 1회가 생겨요"><span class="attack-icon" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M12 20C12 10 19 4 28 4c0 9-6 16-16 16Z" fill="currentColor"/><circle cx="22" cy="10" r="3" fill="#334155"/><path d="m13 12-6 1-3 7 8-1M20 19l-1 6-7 3 1-8" fill="currentColor"/><path d="m9 23-5 5m4-7-4 3m7 0-3 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><span class="attack-label">공격하기</span><span class="attack-badge" id="${pId}-attack-count">0</span></button>
             </div>
         `;
         wrapper.appendChild(area);

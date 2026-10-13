@@ -14,6 +14,12 @@ function cancelTask(task) {
     clearTimeout(task);
     sessionTasks.delete(task);
 }
+function removeEffects(selector = '.game-effect') {
+    document.querySelectorAll(selector).forEach(el => {
+        el.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
+        el.remove();
+    });
+}
 function clearSessionWork() {
     sessionId++;
     sessionTasks.forEach(clearTimeout);
@@ -24,9 +30,9 @@ function clearSessionWork() {
     SoundEngine.stopBGM();
     SoundEngine.stopTones();
     VoiceEngine.cancel();
-    document.querySelectorAll('.game-effect').forEach(el => el.remove());
-    document.querySelectorAll('.flash-damage, .frown-effect').forEach(el => {
-        el.classList.remove('flash-damage', 'frown-effect');
+    removeEffects('.game-effect, .hit-feedback');
+    document.querySelectorAll('.under-attack, .hit-recoil').forEach(el => {
+        el.classList.remove('under-attack', 'hit-recoil');
     });
 }
 
@@ -51,7 +57,7 @@ function applyPreferences() {
         VoiceEngine.cancel();
     }
     if (motionReduced()) {
-        document.querySelectorAll('.game-effect').forEach(el => el.remove());
+        removeEffects();
     }
     try { localStorage.setItem('matching-game-preferences', JSON.stringify(preferences)); } catch (_) {}
 }
@@ -249,12 +255,13 @@ const SoundEngine = {
         this.tones.forEach(osc => { try { osc.stop(); } catch (_) {} });
         this.tones.clear();
     },
-    playTone: function(freq, type, duration, channel = 'effects') {
+    playTone: function(freq, type, duration, channel = 'effects', endFrequency = freq) {
         if (!audioCtx || !preferences[channel] || preferences.volume === 0) return;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         osc.type = type;
         osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        if (endFrequency !== freq) osc.frequency.exponentialRampToValueAtTime(endFrequency, audioCtx.currentTime + duration);
         const speechLevel = VoiceEngine.utterances.size ? (channel === 'bgm' ? 0.15 : 0.35) : 1;
         gain.gain.setValueAtTime(Math.max(.0001, .1 * preferences.volume * speechLevel), audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
@@ -268,8 +275,14 @@ const SoundEngine = {
     playSelect: () => SoundEngine.playTone(600, 'sine', 0.1),
     playMatch: () => { SoundEngine.playTone(800, 'sine', 0.1); scheduleTask(() => SoundEngine.playTone(1200, 'sine', 0.15), 100); },
     playError: () => SoundEngine.playTone(200, 'sawtooth', 0.2),
-    playAttack: () => { SoundEngine.playTone(150, 'square', 0.1); scheduleTask(() => SoundEngine.playTone(100, 'square', 0.2), 100); },
-    playExplosion: () => { SoundEngine.playTone(50, 'sawtooth', 0.5); },
+    playAttack: () => {
+        SoundEngine.playTone(280, 'triangle', 0.25, 'effects', 880);
+        scheduleTask(() => SoundEngine.playTone(660, 'sine', 0.18, 'effects', 1320), 100);
+    },
+    playExplosion: () => {
+        SoundEngine.playTone(130, 'triangle', 0.22, 'effects', 45);
+        scheduleTask(() => SoundEngine.playTone(400, 'triangle', 0.12, 'effects', 120), 40);
+    },
     playWin: () => {
         [400, 500, 600, 800, 1000].forEach((freq, i) => {
             scheduleTask(() => SoundEngine.playTone(freq, 'square', 0.2), i * 150);
@@ -1219,30 +1232,7 @@ function triggerAttack(attackerId) {
             }
             updateHUD();
 
-            const targetArea = document.getElementById(`${targetId}-area`);
-            if (targetArea && !motionReduced()) {
-                targetArea.classList.add('flash-damage');
-                scheduleTask(() => targetArea.classList.remove('flash-damage'), 1000);
-            }
-
-            const targetAvatar = document.getElementById(`${targetId}-avatar`);
-            if(targetAvatar && !motionReduced()) {
-                targetAvatar.classList.add('frown-effect');
-                scheduleTask(() => targetAvatar.classList.remove('frown-effect'), 800);
-                
-                const endRect = targetAvatar.getBoundingClientRect();
-                const explosion = document.createElement('div');
-                explosion.innerText = '💥';
-                explosion.style.position = 'absolute';
-                explosion.style.fontSize = '8rem';
-                explosion.style.zIndex = '2001';
-                explosion.style.left = `${endRect.left + endRect.width / 2}px`;
-                explosion.style.top = `${endRect.top + endRect.height / 2}px`;
-                explosion.style.transform = 'translate(-50%, -50%)';
-                explosion.className = 'explosion-fx game-effect';
-                document.body.appendChild(explosion);
-                scheduleTask(() => explosion.remove(), 800);
-            }
+            showAttackImpact(targetId);
         });
     }
 }
@@ -1276,10 +1266,44 @@ function eliminatePlayer(playerId) {
     }
 }
 
+function showAttackImpact(targetId) {
+    const avatar = document.getElementById(`${targetId}-avatar`);
+    if (!avatar) return;
+    avatar.querySelector('.hit-feedback')?.remove();
+    const feedback = document.createElement('div');
+    feedback.className = 'hit-feedback';
+    feedback.innerHTML = '<span>명중!</span><strong>−15</strong>';
+    feedback.setAttribute('aria-hidden', 'true');
+    avatar.appendChild(feedback);
+    scheduleTask(() => feedback.remove(), 900);
+    if (motionReduced()) return;
+
+    avatar.classList.add('hit-recoil');
+    scheduleTask(() => avatar.classList.remove('hit-recoil'), 420);
+    const rect = avatar.getBoundingClientRect();
+    const burst = document.createElement('div');
+    burst.className = 'impact-burst game-effect';
+    burst.setAttribute('aria-hidden', 'true');
+    burst.style.left = `${rect.left + rect.width / 2}px`;
+    burst.style.top = `${rect.top + rect.height / 2}px`;
+    burst.innerHTML = '<div class="impact-ring"></div><div class="impact-star"></div>';
+    for (let i = 0; i < 8; i++) {
+        const spark = document.createElement('i');
+        const angle = i * Math.PI / 4;
+        const distance = Math.min(80, rect.width * .65);
+        spark.style.setProperty('--spark-x', `${Math.cos(angle) * distance}px`);
+        spark.style.setProperty('--spark-y', `${Math.sin(angle) * distance}px`);
+        spark.style.setProperty('--spark-angle', `${i * 45}deg`);
+        burst.appendChild(spark);
+    }
+    document.body.appendChild(burst);
+    scheduleTask(() => burst.remove(), 650);
+}
+
 function launchMissile(attackerId, targetId, onHit) {
     const attackerBtn = document.getElementById(`${attackerId}-attack-btn`);
     const targetAvatar = document.getElementById(`${targetId}-avatar`);
-    if(!attackerBtn || !targetAvatar) return;
+    if(!attackerBtn || !targetAvatar) { scheduleTask(onHit, 1000); return; }
     
     const startRect = attackerBtn.getBoundingClientRect();
     const endRect = targetAvatar.getBoundingClientRect();
@@ -1288,34 +1312,51 @@ function launchMissile(attackerId, targetId, onHit) {
         scheduleTask(onHit, 1000);
         return;
     }
+    const start = { x: startRect.left + startRect.width / 2, y: startRect.top + startRect.height / 2 };
+    const end = { x: endRect.left + endRect.width / 2, y: endRect.top + endRect.height / 2 };
+    const control = { x: start.x, y: Math.max(45, end.y - 80) };
+    const layer = document.createElement('div');
+    layer.className = 'battle-flight game-effect';
+    layer.setAttribute('aria-hidden', 'true');
+    const color = getComputedStyle(attackerBtn.closest('.player-area')).borderTopColor;
+    layer.style.setProperty('--flight-color', color);
+    const ns = 'http://www.w3.org/2000/svg';
+    const route = document.createElementNS(ns, 'svg');
+    route.setAttribute('viewBox', `0 0 ${innerWidth} ${innerHeight}`);
+    route.classList.add('missile-route');
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`);
+    path.setAttribute('pathLength', '1');
+    route.appendChild(path);
+    layer.appendChild(route);
     const missile = document.createElement('div');
-    missile.className = 'game-effect';
-    missile.innerText = '🚀';
-    missile.style.position = 'absolute';
-    missile.style.fontSize = '6rem';
-    missile.style.zIndex = '2000';
-    missile.style.transition = 'all 1.0s cubic-bezier(0.25, 1, 0.5, 1)';
-    
-    missile.style.left = `${startRect.left + startRect.width / 2}px`;
-    missile.style.top = `${startRect.top + startRect.height / 2}px`;
-    
-    const dx = (endRect.left + endRect.width / 2) - (startRect.left + startRect.width / 2);
-    const dy = (endRect.top + endRect.height / 2) - (startRect.top + startRect.height / 2);
-    const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-    missile.style.transform = `translate(-50%, -50%) rotate(${angle + 45}deg)`;
-
-    document.body.appendChild(missile);
-    
-    missile.getBoundingClientRect();
-    
-    missile.style.left = `${endRect.left + endRect.width / 2}px`;
-    missile.style.top = `${endRect.top + endRect.height / 2}px`;
-    
+    missile.className = 'battle-missile';
+    missile.innerHTML = '<div class="missile-trail"></div>';
+    const artwork = attackerBtn.querySelector('.attack-icon svg').cloneNode(true);
+    artwork.querySelector('g').removeAttribute('transform');
+    missile.appendChild(artwork);
+    layer.appendChild(missile);
+    document.body.appendChild(layer);
+    const frames = Array.from({ length: 41 }, (_, i) => {
+        const t = i / 40, u = 1 - t;
+        const x = u * u * start.x + 2 * u * t * control.x + t * t * end.x;
+        const y = u * u * start.y + 2 * u * t * control.y + t * t * end.y;
+        const dx = 2 * u * (control.x - start.x) + 2 * t * (end.x - control.x);
+        const dy = 2 * u * (control.y - start.y) + 2 * t * (end.y - control.y);
+        const angle = Math.atan2(dy, dx) * 180 / Math.PI + 90;
+        return { transform: `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${angle}deg)` };
+    });
+    const timing = { duration: 1000, easing: 'cubic-bezier(.35, 0, .65, 1)', fill: 'both' };
+    missile.animate(frames, timing);
+    path.animate([{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], timing);
     scheduleTask(() => {
-        missile.remove();
+        layer.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
+        layer.remove();
         if (onHit) onHit();
     }, 1000);
 }
+// A rotation/fullscreen change invalidates the flight coordinates, not the hit.
+window.addEventListener('resize', () => removeEffects('.battle-flight'));
 
 function updateHUD() {
     Object.keys(gameState.players).forEach(playerId => {
@@ -1353,6 +1394,7 @@ function updateHUD() {
         // Battle Attack Button
         const atkBtn = document.getElementById(`${playerId}-attack-btn`);
         const atkCount = document.getElementById(`${playerId}-attack-count`);
+        document.getElementById(`${playerId}-avatar`)?.classList.toggle('under-attack', player.incomingAttacks > 0);
         if (atkBtn && atkCount) {
             if (gameState.gameMode === 'battle' && gameState.playerCount > 1) {
                 atkCount.innerText = player.attacksAvailable || 0;

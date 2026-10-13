@@ -22,6 +22,9 @@ exit and a rejected request, with labels following the actual browser state.
 Voice checks also cover Korean-only selection, quality hints, delayed loading,
 missing voices, preview and speed persistence, complete names during quick
 matches, and quieter sounds during speech.
+Attack-effect checks cover curved flight, touches through the visual overlay,
+impact feedback, cancellation on a new game, and switching to reduced motion
+during flight without changing damage or attack timing.
 
 Every round now has six pairs (12 cards). Theme checks decode all five 16-icon
 atlases, check picture/word mapping, match an entire round and verify that all
